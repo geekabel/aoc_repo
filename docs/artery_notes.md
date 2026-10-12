@@ -14,7 +14,7 @@ also declare a measurement time (`t_meas`) that is older than the position itsel
 Decision of 2026-10-12: fix both in the replay, in Python. For each row, the replay takes the true state at `t_meas`,
 adds random noise with a chosen sigma_x and sigma_v, and fills the covariance columns.
 The noise can then change without a new network simulation, and it is repeatable with a seed.
-Default values: sigma_x = 0.3 m and sigma_v = 0.5 m/s, as in the theory note. It is built with the replay loader (task B2).
+Default values: sigma_x = 0.3 m and sigma_v = 0.5 m/s, as in the theory note. It is done in `aoc.fusion.noise` (task B2, see `replay.md`).
 
 **2. With the sensors of the example, most CPM objects come from CAM messages.**
 The example gives each vehicle a "CAM sensor". A vehicle known from its CAMs enters the local model, and then the CPMs.
@@ -58,7 +58,7 @@ The cause is not found. It does not hurt the log-and-replay design: all fusion v
 - Module `artery.envmod.service.CpService`, BTP port 2009.
 - Signals `CpmSent` and `CpmReceived` carry the full CPM. The logger uses them.
 - The optional result vectors (`cpmStationId`, `cpmReferenceTime`) are recorded only with `result-recording-modes=all`.
-- A receiver also gets CPM objects that describe itself, when the sender detects it. The replay has to handle these rows.
+- A receiver also gets CPM objects that describe itself, when the sender detects it. The replay leaves these rows out by default.
   In the sample run `tests/data/run_aoc_sensors`, 230 of the 667 CPM rows describe the receiver itself.
 
 ## Options on the command line

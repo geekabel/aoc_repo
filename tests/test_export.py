@@ -5,15 +5,11 @@ tests/data/run_aoc_sensors       14 s, the sensors of artery-ext/config/sensors-
 """
 import json
 import pathlib
-import subprocess
-import sys
 
 import pandas as pd
 import pytest
 
 from aoc.io import export, schema
-
-DATA = pathlib.Path(__file__).parent / "data"
 
 # The 27 columns of the logging schema of the Plan, in the order of the Plan.
 PLAN_COLUMNS = [
@@ -32,11 +28,9 @@ EXPECTED = {
 
 
 @pytest.fixture(scope="module", params=list(EXPECTED))
-def exported(request, tmp_path_factory):
-    out = tmp_path_factory.mktemp(request.param)
-    done = subprocess.run([sys.executable, "-m", "aoc.io.export", str(DATA / request.param), "--out", str(out)],
-                          capture_output=True, text=True)
-    return request.param, out, done
+def exported(request, exported_runs):
+    folder, done = exported_runs[request.param]
+    return request.param, folder, done
 
 
 def test_export_passes_its_own_checks(exported):
