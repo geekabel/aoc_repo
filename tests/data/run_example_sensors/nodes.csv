@@ -1,0 +1,6 @@
+t_first,node,node_id,station_id,module
+0.100000,node[0],flow0.0,19,AocWorld.node[0]
+3.100000,node[1],flow0.1,97,AocWorld.node[1]
+6.100000,node[2],flow0.2,175,AocWorld.node[2]
+9.100000,node[3],flow0.3,253,AocWorld.node[3]
+12.100000,node[4],flow0.4,331,AocWorld.node[4]

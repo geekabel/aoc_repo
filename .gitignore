@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# results written by the theory modules when they are run by hand
+a2_results.json
+a3_results.json
+a4_results.json
+a2_alpha_per_class.png
+
+# LaTeX side files
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# simulation results and exports: keep them out of git (the samples in tests/data are the exception)
+results/
+*.parquet
+*.vec
+*.sca
+*.vci
+
+# editors and system
+.idea/
+.vscode/
+.DS_Store

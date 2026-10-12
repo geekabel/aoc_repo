@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "age-of-confidence"
+version = "0.1.0"
+description = "Age of Confidence (AoC): network-aware evidential fusion for cooperative perception"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Godwin Koffi" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "pyarrow>=14",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+figures = ["matplotlib>=3.7"]
+
+[project.scripts]
+aoc-export = "aoc.io.export:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 165
+target-version = "py310"
+extend-exclude = ["artery-ext/scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+# E731: the theory modules use short lambda functions for the equations to solve
+ignore = ["E731"]
+
+[tool.ruff.lint.per-file-ignores]
+# the figure script sets the matplotlib backend before it imports pyplot, and calls its figures on one line
+"theory/note/code/a5_figures.py" = ["E402", "E702", "I001"]
