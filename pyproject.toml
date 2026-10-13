@@ -23,6 +23,7 @@ figures = ["matplotlib>=3.7"]
 [project.scripts]
 aoc-export = "aoc.io.export:main"
 aoc-replay = "aoc.fusion.replay:main"
+aoc-associate = "aoc.fusion.association:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

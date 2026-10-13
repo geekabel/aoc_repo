@@ -44,7 +44,8 @@ def _plain(frame: pd.DataFrame) -> pd.DataFrame:
     """The same table with plain column types, so that a tick costs little.
 
     Text columns become Python strings, with None where a value is missing.
-    Whole-number columns that allow missing values become int64, or float64 if a value is missing.
+    Whole-number columns that allow missing values become float64, with NaN where a value is missing.
+    So the sensor rows and the CPM rows of a tick have the same column types.
     """
     out = {}
     for name in frame.columns:
@@ -53,7 +54,7 @@ def _plain(frame: pd.DataFrame) -> pd.DataFrame:
             plain = col.astype(object)
             out[name] = plain.where(col.notna().to_numpy(), None)
         elif pd.api.types.is_extension_array_dtype(col.dtype) and pd.api.types.is_integer_dtype(col.dtype):
-            out[name] = col.astype("float64" if col.isna().any() else "int64")
+            out[name] = col.astype("float64")
         else:
             out[name] = col
     return pd.DataFrame(out, index=frame.index)

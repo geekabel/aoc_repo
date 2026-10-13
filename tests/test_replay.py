@@ -167,7 +167,8 @@ def test_text_columns_are_plain_strings(ticks):
     tick = ticks["flow0.0"][50]
     assert tick.local["tx_station"].tolist() == [None] * len(tick.local)
     assert (tick.v2x["tx_station"] == "nobody").dtype == bool
-    assert tick.v2x["reference_time_ms"].dtype == np.int64
+    assert tick.v2x["reference_time_ms"].dtype == np.float64 and tick.v2x["reference_time_ms"].notna().all()
+    assert tick.local.dtypes.tolist() == tick.v2x.dtypes.tolist()
 
 
 def test_check_of_the_sample_run_passes(run, exported_runs, capsys):

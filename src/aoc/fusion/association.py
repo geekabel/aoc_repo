@@ -1,0 +1,544 @@
+"""Association (second half of task B3).
+
+At a tick, a vehicle knows objects from several sources: each of its sensors, and each vehicle that
+sends CPMs. Several of these objects are the same real object. This module decides which ones.
+The result is a group number for each object: the objects of one group are one real object.
+
+All objects are first moved to the time of the tick (``aoc.fusion.alignment``). Two methods are here:
+
+  greedy (default)   The adapted greedy algorithm of Wolf, Steuernagel, Thormann and Baum,
+                     "Track-to-track Association based on Stochastic Optimization", FUSION 2023, Algorithm 1.
+                     Every object starts alone. The pairs of objects are taken from the closest to the farthest.
+                     Two lone objects form a group, a lone object joins a group, and two groups are merged,
+                     as long as a group never holds two objects of one source. See ``greedy_groups``.
+  sensorwise         The sources one after the other, with the best global match for each one
+                     (the Hungarian method). See ``sensorwise_groups``.
+
+What "close" means is set by ``AssociationConfig.distance``. The paper uses the Euclidean distance.
+The default here is the "likelihood" distance: the Mahalanobis distance (the distance counted in units of the
+uncertainty of the two objects) plus a term that grows with the size of this uncertainty. With the Mahalanobis
+distance alone, a vague old object looks closer than a fresh one and is served first (decision of 2026-10-13).
+
+Two tests decide if a pair may be matched at all:
+  - the gate: the Mahalanobis distance must be below a limit;
+  - the coincidence test: the match must be more likely than finding another object at this place by
+    chance. A vague object fails this test: it could match anything, so a match with it proves nothing.
+
+Rules that hold for both methods:
+  - Two objects of one source are never in one group. A source reports a real object once.
+  - An old object that fails the coincidence test stays alone in its group. It is not thrown away:
+    the fusion gives it the reliability of its age.
+  - The identifiers given by the sources are not used to match. In particular the track number of
+    the local environment model of Artery, which is the same for all sensors of a vehicle, is not
+    used: it comes from the simulator and a real vehicle does not have it.
+
+    from aoc.fusion.alignment import align
+    from aoc.fusion.association import associate
+    aligned = align(tick)
+    groups = associate(aligned)                 # one group number per row of aligned.objects
+
+Run this module to check a run:  python -m aoc.fusion.association RUN_FOLDER      (command ``aoc-associate``)
+"""
+from __future__ import annotations
+
+import argparse
+import functools
+import os
+import sys
+import time
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+from scipy.optimize import linear_sum_assignment
+from scipy.stats import chi2
+
+from .alignment import Aligned, align
+from .noise import NoiseModel
+from .replay import Run, load_run
+
+_BIG = 1.0e9          # cost of a match that is not allowed
+_FLOOR = 1.0e-6       # smallest variance of a pair (1 mm, 1 mm/s): keeps an exact estimate usable
+
+
+@functools.lru_cache(maxsize=None)
+def _chi2_limit(probability: float, dimension: int) -> float:
+    return float(chi2.ppf(probability, dimension))
+
+
+METHODS = ("greedy", "sensorwise")
+DISTANCES = ("mahalanobis", "likelihood", "euclidean")
+
+
+@dataclass(frozen=True)
+class AssociationConfig:
+    """Settings of the association.
+
+    method             "greedy" (default): the adapted greedy algorithm of Wolf et al. (see ``greedy_groups``).
+                       "sensorwise": the sources one after the other, with the best global match for each (``sensorwise_groups``).
+    distance           what "close" means for two objects, and in which order the greedy algorithm takes the pairs:
+                       "likelihood" (default)   the Mahalanobis distance plus a term that grows with the size of the
+                                                uncertainty (the negative logarithm of the likelihood of the pair)
+                       "mahalanobis"            the distance counted in units of the joint uncertainty of the two objects
+                       "euclidean"              the plain distance in metres, as in the conference paper
+    gate_probability   a true match passes the gate with this probability (default 0.99); not used with "euclidean"
+    coincidence_test   True (default): a match must also be more likely than a chance meeting. A vague object fails it.
+                       Not used with "euclidean".
+    euclidean_limit    largest distance in metres of a match with "euclidean" (default 2.0)
+    use_velocity       False (default): compare the positions. True: compare positions and speeds.
+    density_position   chance objects per square metre, for the coincidence test (default 0.01: one object per 100 m2)
+    density_velocity   the same for the speed, per (m/s)2 (default 0.03); used only with use_velocity
+    """
+
+    method: str = "greedy"
+    distance: str = "likelihood"
+    gate_probability: float = 0.99
+    coincidence_test: bool = True
+    euclidean_limit: float = 2.0
+    use_velocity: bool = False
+    density_position: float = 0.01
+    density_velocity: float = 0.03
+
+    def __post_init__(self):
+        if self.method not in METHODS:
+            raise ValueError("method must be one of %s" % ", ".join(METHODS))
+        if self.distance not in DISTANCES:
+            raise ValueError("distance must be one of %s" % ", ".join(DISTANCES))
+        if not 0.0 < self.gate_probability < 1.0:
+            raise ValueError("gate_probability must be between 0 and 1")
+        if not (self.density_position > 0.0 and self.density_velocity > 0.0):
+            raise ValueError("the densities must be positive")
+        if not self.euclidean_limit > 0.0:
+            raise ValueError("euclidean_limit must be positive")
+
+    @property
+    def dimension(self) -> int:
+        return 4 if self.use_velocity else 2
+
+    @property
+    def gate(self) -> float:
+        """Limit of the squared Mahalanobis distance."""
+        return _chi2_limit(self.gate_probability, self.dimension)
+
+    @property
+    def log_density(self) -> float:
+        density = self.density_position * (self.density_velocity if self.use_velocity else 1.0)
+        return float(np.log(density))
+
+
+def _with_floor(cov: np.ndarray) -> np.ndarray:
+    """Raises the variances that are below the floor (in place) and returns the array."""
+    diagonal = np.arange(cov.shape[-1])
+    cov[..., diagonal, diagonal] = np.maximum(cov[..., diagonal, diagonal], _FLOOR)
+    return cov
+
+
+def pair_costs(state_a: np.ndarray, cov_a: np.ndarray, state_b: np.ndarray, cov_b: np.ndarray,
+               config: AssociationConfig) -> tuple[np.ndarray, np.ndarray]:
+    """Compares every object of list a with every object of list b.
+
+    Returns two tables of shape (len(a), len(b)):
+      distance   the squared Mahalanobis distance d2, with the sum of the two covariances
+      cost       d2 + ln det(2 pi S) + 2 ln(density): negative when the match is more likely than a coincidence
+    The two estimates are taken as independent. This is the usual simplification of track-to-track association.
+    A variance of S below a very small value (1 mm, 1 mm/s) is raised to it, so that two exact estimates can still be compared.
+
+    With use_velocity, the full comparison is made only for the pairs whose positions alone pass the gate.
+    The distance on position and speed is never smaller than the distance on the position alone, so no
+    allowed match is lost. The other pairs get an infinite distance and an infinite cost.
+    """
+    dx = state_a[:, None, 0] - state_b[None, :, 0]
+    dy = state_a[:, None, 1] - state_b[None, :, 1]
+    sxx = np.maximum(cov_a[:, None, 0, 0] + cov_b[None, :, 0, 0], _FLOOR)
+    syy = np.maximum(cov_a[:, None, 1, 1] + cov_b[None, :, 1, 1], _FLOOR)
+    sxy = cov_a[:, None, 0, 1] + cov_b[None, :, 0, 1]
+    det = sxx * syy - sxy**2
+    distance = (syy * dx**2 - 2.0 * sxy * dx * dy + sxx * dy**2) / det
+    if not config.use_velocity:
+        return distance, distance + 2.0 * np.log(2.0 * np.pi) + np.log(det) + 2.0 * config.log_density
+
+    near = distance <= config.gate
+    distance = np.full(near.shape, np.inf)
+    cost = np.full(near.shape, np.inf)
+    ia, ib = np.nonzero(near)
+    if len(ia):
+        diff = state_a[ia] - state_b[ib]
+        joint = _with_floor(cov_a[ia] + cov_b[ib])
+        solved = np.linalg.solve(joint, diff[..., None])[..., 0]
+        d2 = np.einsum("ni,ni->n", diff, solved)
+        _, log_det = np.linalg.slogdet(joint)
+        distance[ia, ib] = d2
+        cost[ia, ib] = d2 + 4.0 * np.log(2.0 * np.pi) + log_det + 2.0 * config.log_density
+    return distance, cost
+
+
+def can_match(cov: np.ndarray, config: AssociationConfig) -> np.ndarray:
+    """False for an object that is too vague to pass the coincidence test with any partner.
+
+    The joint covariance of a pair is never smaller than the covariance of one of its two objects.
+    So if the object alone already fails the test at distance zero, every pair with it fails.
+    """
+    d = config.dimension
+    _, log_det = np.linalg.slogdet(_with_floor(cov[:, :d, :d].copy()))
+    return d * np.log(2.0 * np.pi) + log_det + 2.0 * config.log_density < 0.0
+
+
+def allowed_pairs(distance: np.ndarray, cost: np.ndarray, config: AssociationConfig) -> np.ndarray:
+    """True where a match may be made: inside the gate, and (if the test is on) more likely than a coincidence."""
+    allowed = distance <= config.gate
+    if config.coincidence_test:
+        allowed &= cost < 0.0
+    return allowed
+
+
+def best_matches(distance: np.ndarray, cost: np.ndarray, gate: float) -> list[tuple[int, int]]:
+    """The best global choice of matches between rows (groups) and columns (objects).
+
+    A match is allowed when its distance is inside the gate and its cost is negative.
+    Each row and each column is used at most once. Leaving a column without a match costs 0.
+    """
+    if distance.size == 0:
+        return []
+    return _assign(cost, (distance <= gate) & (cost < 0.0))
+
+
+def _assign(cost: np.ndarray, allowed: np.ndarray) -> list[tuple[int, int]]:
+    """The allowed matches with the lowest total cost. A column without a match costs as much as the best possible match."""
+    n_rows, n_cols = cost.shape
+    if n_rows == 0 or n_cols == 0 or not allowed.any():
+        return []
+    # shift the costs so that every allowed match is cheaper than no match, and the order of the costs is kept
+    shift = float(cost[allowed].max()) + 1.0 if (cost[allowed] >= 0.0).any() else 0.0
+    table = np.full((n_rows + n_cols, n_cols), _BIG)
+    table[:n_rows][allowed] = cost[allowed] - shift
+    table[n_rows + np.arange(n_cols), np.arange(n_cols)] = 0.0          # "no match" for each column
+    rows, cols = linear_sum_assignment(table)
+    return [(int(r), int(c)) for r, c in zip(rows, cols) if r < n_rows and allowed[r, c]]
+
+
+def source_order(objects: pd.DataFrame) -> list[str]:
+    """The sources in the order in which they are processed: sensors of the vehicle first, then the senders, by name."""
+    names = pd.unique(objects["source"])
+    return sorted(names, key=lambda name: (str(name).startswith("v2x:"), str(name)))
+
+
+def _first_seen_numbers(labels: np.ndarray) -> np.ndarray:
+    """The same groups, numbered from 0 in the order in which they first appear in the list of objects."""
+    _, first, inverse = np.unique(labels, return_index=True, return_inverse=True)
+    rank = np.empty(len(first), dtype=np.int64)
+    rank[np.argsort(first, kind="stable")] = np.arange(len(first))
+    return rank[inverse]
+
+
+def greedy_groups(aligned: Aligned, config: AssociationConfig | None = None) -> np.ndarray:
+    """The adapted greedy algorithm for track-to-track association.
+
+    L. M. Wolf, S. Steuernagel, K. Thormann, M. Baum, "Track-to-track Association based on Stochastic
+    Optimization", FUSION 2023, Algorithm 1. It is the greedy algorithm of Houenou et al. (IV 2012) with
+    one more step: two groups can be merged. The code follows the paper and the authors' own program.
+
+      1. Every object starts alone.
+      2. The distance of every pair of objects is computed. A pair is removed from the list when the two
+         objects come from the same source, or when they are too far apart.
+      3. The pairs are taken in the order of their distance, the closest first:
+           - both objects are alone: they form a new group;
+           - one is alone: it joins the group of the other, unless this group already has an object of its source;
+           - both are in a group: the two groups are merged, unless they share a source (the added step).
+         After a pair is taken, the pairs that it rules out are removed from the list: the first object with any
+         other object of the source of the second one, and the second object with any other object of the source
+         of the first one.
+
+    One thing differs from the paper, as Godwin asked: the distance. The paper uses the Euclidean distance.
+    Here the distance uses the uncertainty of the two objects (``config.distance``): the Mahalanobis distance,
+    or by default the "likelihood" distance, which is the Mahalanobis distance plus a term for the size of the
+    uncertainty. "Too far apart" is then the gate on the Mahalanobis distance, plus the coincidence test if it is on.
+    """
+    config = config or AssociationConfig()
+    n = len(aligned)
+    if n == 0:
+        return np.zeros(0, dtype=np.int64)
+    state, cov = aligned.state, aligned.cov
+    source = aligned.objects["source"].to_numpy(dtype=object)
+    if not all(isinstance(name, str) for name in source):
+        raise ValueError("every object needs a source name")
+    _, source_id = np.unique(source.astype(str), return_inverse=True)
+
+    # step 2: the distance of every pair, and the pairs that stay in the list
+    if config.distance == "euclidean":
+        rank = np.hypot(state[:, None, 0] - state[None, :, 0], state[:, None, 1] - state[None, :, 1])
+        valid = rank <= config.euclidean_limit
+    else:
+        distance, cost = pair_costs(state, cov, state, cov, config)
+        valid = allowed_pairs(distance, cost, config)
+        rank = distance if config.distance == "mahalanobis" else cost
+    valid &= np.tri(n, k=-1, dtype=bool)                          # each pair once: the lower triangle, as in the paper
+    valid &= source_id[:, None] != source_id[None, :]             # never two objects of one source
+
+    rows, cols = np.nonzero(valid)
+    order = np.lexsort((cols, rows, rank[rows, cols]))            # by distance; equal distances by position in the list
+    rows, cols = rows[order], cols[order]
+
+    # step 3
+    group = np.zeros(n, dtype=np.int64)                           # 0 = alone
+    members: dict[int, list[int]] = {}
+    sources: dict[int, set[int]] = {}
+    next_group = 1
+    for r, c in zip(rows.tolist(), cols.tolist()):
+        if not valid[r, c]:
+            continue                                              # removed by an earlier pair
+        gr, gc = int(group[r]), int(group[c])
+        if gr == 0 and gc == 0:
+            group[r] = group[c] = next_group
+            members[next_group] = [r, c]
+            sources[next_group] = {int(source_id[r]), int(source_id[c])}
+            next_group += 1
+        elif gr == 0:
+            if int(source_id[r]) not in sources[gc]:
+                group[r] = gc
+                members[gc].append(r)
+                sources[gc].add(int(source_id[r]))
+        elif gc == 0:
+            if int(source_id[c]) not in sources[gr]:
+                group[c] = gr
+                members[gr].append(c)
+                sources[gr].add(int(source_id[c]))
+        elif gr != gc and sources[gr].isdisjoint(sources[gc]):
+            group[members[gc]] = gr                               # the added step: merge the two groups
+            members[gr].extend(members.pop(gc))
+            sources[gr] |= sources.pop(gc)
+        valid[r, source_id == source_id[c]] = False
+        valid[source_id == source_id[r], c] = False
+
+    alone = group == 0
+    group[alone] = next_group + np.arange(int(alone.sum()))
+    return _first_seen_numbers(group)
+
+
+def sensorwise_groups(aligned: Aligned, config: AssociationConfig | None = None) -> np.ndarray:
+    """The sources one after the other, with the best global match for each one.
+
+    The sensors of the vehicle come first, then the senders by name. The objects of the first source open
+    one group each. Each object of the next source is compared with every member of every group that can
+    still match; the pair with the lowest cost stands for the group. Among the allowed matches the best
+    global choice is taken (the Hungarian method). An object without a match opens a new group.
+    The gate uses the Mahalanobis distance, the cost is the "likelihood" distance. ``config.distance`` is not used.
+    """
+    config = config or AssociationConfig()
+    n = len(aligned)
+    groups = np.full(n, -1, dtype=np.int64)
+    if n == 0:
+        return groups
+    state, cov = aligned.state, aligned.cov
+    source = aligned.objects["source"].to_numpy(dtype=object)
+    if not all(isinstance(name, str) for name in source):
+        raise ValueError("every object needs a source name")
+    usable = can_match(cov, config) if config.coincidence_test else np.ones(n, dtype=bool)
+    n_groups = 0
+    placed = np.zeros(0, dtype=np.int64)                       # usable objects that are already in a group
+    for name in source_order(aligned.objects):
+        members = np.flatnonzero(source == name)
+        open_members = members[usable[members]]
+        matched: dict[int, int] = {}
+        if len(placed) and len(open_members):
+            distance, cost = pair_costs(state[placed], cov[placed], state[open_members], cov[open_members], config)
+            allowed = allowed_pairs(distance, cost, config)
+            if allowed.any():
+                # one line per group: the lowest cost over its members
+                group_of = groups[placed]
+                ids, first = np.unique(group_of, return_index=True)        # placed is kept sorted by group
+                cost = np.where(allowed, cost, np.inf)
+                per_group = np.minimum.reduceat(cost, first, axis=0)
+                finite = np.isfinite(per_group)
+                for row, col in _assign(np.where(finite, per_group, np.inf), finite):
+                    matched[int(open_members[col])] = int(ids[row])
+        for obj in members:
+            if obj in matched:
+                groups[obj] = matched[obj]
+            else:
+                groups[obj] = n_groups
+                n_groups += 1
+        if len(open_members):
+            placed = np.concatenate([placed, open_members])
+            placed = placed[np.argsort(groups[placed], kind="stable")]
+    return _first_seen_numbers(groups)
+
+
+def associate(aligned: Aligned, config: AssociationConfig | None = None) -> np.ndarray:
+    """Gives a group number to each object of an aligned tick. Objects with the same number are one real object.
+
+    The method is chosen by ``config.method``: the adapted greedy algorithm (default) or the sensor-wise one.
+    The groups are numbered from 0 in the order in which they first appear in the list of objects.
+    """
+    config = config or AssociationConfig()
+    if config.method == "greedy":
+        return greedy_groups(aligned, config)
+    return sensorwise_groups(aligned, config)
+
+
+def oracle_groups(aligned: Aligned) -> np.ndarray:
+    """The perfect association, from the ground truth: one group per true object.
+
+    For evaluation and for ablations only. Objects without a true object get a group each.
+    """
+    truth = aligned.objects["gt_match_id"].to_numpy(dtype=object)
+    groups = np.full(len(truth), -1, dtype=np.int64)
+    seen: dict = {}
+    for i, name in enumerate(truth):
+        if name is None or (isinstance(name, float) and np.isnan(name)):
+            groups[i] = len(seen)
+            seen[("alone", i)] = groups[i]
+        else:
+            groups[i] = seen.setdefault(name, len(seen))
+    return groups
+
+
+# ----------------------------------------------------------------------------
+# Quality of an association, measured with the ground truth
+# ----------------------------------------------------------------------------
+_COUNTS = ("same_group", "same_group_true", "same_truth", "same_truth_found", "fresh_same_truth", "fresh_same_truth_found",
+           "recent_same_truth", "recent_same_truth_found")
+
+
+def pair_counts(aligned: Aligned, groups: np.ndarray, fresh_age: float = 0.5, recent_age: float = 1.0) -> dict:
+    """Counts the pairs of objects of one tick, to compare an association with the ground truth.
+
+    A pair is two objects from two different sources.
+      same_group        pairs put in one group
+      same_group_true   of these, pairs that are one real object (the others are wrong merges)
+      same_truth        pairs that are one real object
+      same_truth_found  of these, pairs put in one group (the others are missed)
+      fresh_*           the same two counts for pairs in which both objects are younger than fresh_age
+      recent_*          the same two counts for pairs in which both objects are younger than recent_age
+    """
+    objects = aligned.objects
+    n = len(objects)
+    out = dict.fromkeys(_COUNTS, 0)
+    if n < 2:
+        return out
+    truth = objects["gt_match_id"].to_numpy(dtype=object)
+    source = objects["source"].to_numpy(dtype=object)
+    age = objects["age_now"].to_numpy(dtype=float)
+    fresh, recent = age <= fresh_age, age <= recent_age
+    upper = np.triu(np.ones((n, n), dtype=bool), k=1) & (source[:, None] != source[None, :])
+    has_truth = np.array([isinstance(name, str) for name in truth])
+    same_truth = (truth[:, None] == truth[None, :]) & has_truth[:, None] & has_truth[None, :] & upper
+    same_group = (groups[:, None] == groups[None, :]) & upper
+    both_fresh = fresh[:, None] & fresh[None, :]
+    out["same_group"] = int(same_group.sum())
+    out["same_group_true"] = int((same_group & same_truth).sum())
+    out["same_truth"] = int(same_truth.sum())
+    out["same_truth_found"] = int((same_truth & same_group).sum())
+    out["fresh_same_truth"] = int((same_truth & both_fresh).sum())
+    out["fresh_same_truth_found"] = int((same_truth & both_fresh & same_group).sum())
+    both_recent = recent[:, None] & recent[None, :]
+    out["recent_same_truth"] = int((same_truth & both_recent).sum())
+    out["recent_same_truth_found"] = int((same_truth & both_recent & same_group).sum())
+    return out
+
+
+def check_run(run: Run, config: AssociationConfig | None = None, period: float = 0.1, hold: float | None = None,
+              fresh_age: float = 0.5, recent_age: float = 1.0) -> dict:
+    """Aligns and associates every tick of every vehicle of a run, and measures the result with the ground truth.
+
+    Three numbers decide the result:
+      precision      share of the matches that join one real object (limit 0.99)
+      recall_fresh   share found of the pairs of one real object in which both objects are younger than fresh_age (limit 0.95)
+      recall_recent  the same for recent_age (limit 0.90)
+    """
+    config = config or AssociationConfig()
+    total = dict.fromkeys(_COUNTS, 0)
+    ticks = n_objects = n_groups = n_alone = same_source_twice = 0
+    start = time.perf_counter()
+    for ego in run.egos:
+        for tick in run.replay(ego, period=period, hold=hold):
+            aligned = align(tick)
+            groups = associate(aligned, config)
+            ticks += 1
+            n_objects += len(groups)
+            if len(groups):
+                n_groups += len(np.unique(groups))
+                n_alone += int((np.unique(groups, return_counts=True)[1] == 1).sum())
+                in_group = set(zip(groups.tolist(), aligned.objects["source"].to_numpy(dtype=object).tolist()))
+                same_source_twice += len(groups) - len(in_group)
+            for key, value in pair_counts(aligned, groups, fresh_age, recent_age).items():
+                total[key] += value
+
+    def ratio(part: str, whole: str) -> float | None:
+        return total[part] / total[whole] if total[whole] else None
+
+    out = dict(total)
+    out.update(ticks=ticks, objects=n_objects, groups=n_groups, groups_with_one_object=n_alone, seconds=round(time.perf_counter() - start, 1),
+               same_source_twice_in_a_group=same_source_twice)
+    precision, fresh = ratio("same_group_true", "same_group"), ratio("fresh_same_truth_found", "fresh_same_truth")
+    recent, everything = ratio("recent_same_truth_found", "recent_same_truth"), ratio("same_truth_found", "same_truth")
+    problems = []
+    if ticks == 0:
+        problems.append("the run gave no tick")
+    if same_source_twice:
+        problems.append("two objects of one source are in one group")
+    if total["fresh_same_truth"] == 0:
+        problems.append("the run holds no fresh pair of one real object: the association cannot be checked")
+    if precision is not None and precision < 0.99:
+        problems.append("more than 1% of the matches join two different real objects")
+    if fresh is not None and fresh < 0.95:
+        problems.append("more than 5%% of the pairs of one real object younger than %g s are missed" % fresh_age)
+    if recent is not None and recent < 0.90:
+        problems.append("more than 10%% of the pairs of one real object younger than %g s are missed" % recent_age)
+    for name, value in (("precision", precision), ("recall_fresh", fresh), ("recall_recent", recent), ("recall_all_ages", everything)):
+        out[name] = None if value is None else round(value, 4)
+    out["problems"] = problems
+    out["result"] = "PASS" if not problems else "FAIL"
+    return out
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Align and associate every tick of an exported run, and compare the result with the ground truth.")
+    ap.add_argument("run_dir", help="folder with observations.parquet and truth.parquet (written by aoc-export)")
+    ap.add_argument("--method", choices=METHODS, default="greedy", help="greedy: the adapted greedy algorithm (default); sensorwise")
+    ap.add_argument("--distance", choices=DISTANCES, default="likelihood", help="distance of the greedy algorithm (default likelihood)")
+    ap.add_argument("--no-coincidence-test", action="store_true", help="allow a match on the gate alone")
+    ap.add_argument("--euclidean-limit", type=float, default=2.0, help="largest distance of a match in m with --distance euclidean (default 2)")
+    ap.add_argument("--seed", type=int, default=0, help="seed of the noise (default 0)")
+    ap.add_argument("--gate", type=float, default=0.99, help="probability that a true match passes the gate (default 0.99)")
+    ap.add_argument("--with-speed", action="store_true", help="compare positions and speeds (default: positions only)")
+    ap.add_argument("--hold", type=float, default=None, help="forget a CPM object older than this many seconds (default: never)")
+    ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
+    args = ap.parse_args(argv)
+    try:
+        config = AssociationConfig(method=args.method, distance=args.distance, gate_probability=args.gate,
+                                   coincidence_test=not args.no_coincidence_test, euclidean_limit=args.euclidean_limit,
+                                   use_velocity=args.with_speed)
+        run = load_run(args.run_dir, noise=NoiseModel(seed=args.seed), missing="drop" if args.drop_unmatched else "raise")
+        c = check_run(run, config, hold=args.hold)
+    except (FileNotFoundError, ValueError) as err:
+        print("ERROR: %s" % err, file=sys.stderr)
+        return 2
+
+    def share(part, whole):
+        return "%d of %d (%.2f%%)" % (part, whole, 100.0 * part / whole) if whole else "none"
+
+    if config.method == "sensorwise":
+        how = "sensorwise"
+    elif config.distance == "euclidean":
+        how = "greedy, Euclidean distance up to %g m" % config.euclidean_limit
+    else:
+        how = "greedy, %s distance, gate %.2f%s" % (config.distance.capitalize() if config.distance == "mahalanobis" else config.distance,
+                                                   config.gate_probability, ", coincidence test" if config.coincidence_test else "")
+    print("B3 ASSOCIATION CHECK")
+    print("  run:                 %s" % run.info.get("run_id", os.path.abspath(args.run_dir)))
+    print("  method:              %s" % how)
+    print("  settings:            %s, seed %d, hold %s"
+          % ("position and speed" if config.use_velocity else "position only", args.seed, "none" if args.hold is None else "%g s" % args.hold))
+    print("  ticks:               %d ticks of %d vehicles in %.1f s" % (c["ticks"], len(run.egos), c["seconds"]))
+    print("  per tick, average:   %.1f objects in %.1f groups, %.1f groups with one object"
+          % (c["objects"] / max(c["ticks"], 1), c["groups"] / max(c["ticks"], 1), c["groups_with_one_object"] / max(c["ticks"], 1)))
+    print("  matches that join one real object:                        %s" % share(c["same_group_true"], c["same_group"]))
+    print("  pairs of one real object, both younger than 0.5 s, found: %s" % share(c["fresh_same_truth_found"], c["fresh_same_truth"]))
+    print("  pairs of one real object, both younger than 1 s, found:   %s" % share(c["recent_same_truth_found"], c["recent_same_truth"]))
+    print("  groups with two objects of one source:                    %d" % c["same_source_twice_in_a_group"])
+    print("  result:              %s%s" % (c["result"], "" if not c["problems"] else " (" + "; ".join(c["problems"]) + ")"))
+    return 0 if not c["problems"] else 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())
