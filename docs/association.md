@@ -6,7 +6,7 @@ that sends CPMs. Several of these objects are the same real object. Task B3 answ
 1. Where is each object now? (`aoc.fusion.alignment`)
 2. Which objects are the same real object? (`aoc.fusion.association`)
 
-Both modules were written from scratch.
+The association uses the adapted greedy algorithm of Wolf et al. (FUSION 2023), with the Mahalanobis distance.
 
 ## Check a run
 
@@ -15,7 +15,8 @@ aoc-associate RUN_FOLDER          # the folder with observations.parquet and tru
 ```
 
 The command aligns and associates every tick of every vehicle, compares the result with the ground truth,
-and prints PASS or FAIL. Options: `--seed`, `--gate`, `--with-speed`, `--hold`, `--drop-unmatched`.
+and prints PASS or FAIL. Options: `--method`, `--distance`, `--no-coincidence-test`, `--euclidean-limit`,
+`--gate`, `--with-speed`, `--hold`, `--seed`, `--drop-unmatched`.
 
 ## Use it in Python
 
@@ -65,28 +66,110 @@ the table gets the largest value.
 
 ## Step 2: association
 
-1. The sources are taken one after the other: the sensors of the vehicle first, then the senders, by name.
-   The objects of the first source open one group each.
-2. Each object of the next source is compared with every member of every group. Members that are too vague
-   to pass the second test with any partner are skipped. Two tests decide if a match is allowed:
-   - **The gate.** The distance between the two objects, counted in units of their joint uncertainty
-     (the Mahalanobis distance), must be below a limit. With the default, a true match passes with a probability of 0.99.
-   - **The coincidence test.** The match must be more likely than finding another object at this place by chance.
-     The chance is set by a density: one object per 100 m2 by default. A vague object fails this test:
-     it could match anything, so a match with it proves nothing.
-3. Among the allowed matches, the best global choice is taken (the Hungarian method): each object goes to at most one group,
-   each group takes at most one object of this source, and the total cost is the lowest.
-   An object without a match opens a new group.
+This is a track-to-track association: it decides which objects of the different sources are the same real object.
+The default method is the **adapted greedy algorithm** of the paper
 
-Rules that follow:
+> L. M. Wolf, S. Steuernagel, K. Thormann, M. Baum, "Track-to-track Association based on Stochastic Optimization",
+> FUSION 2023, Algorithm 1.
+
+It is the greedy algorithm of Houenou et al. (IV 2012) with one more step, the merging of two groups.
+
+1. Every object starts alone.
+2. The distance of every pair of objects is computed. A pair is removed from the list when the two objects come
+   from the same source, or when they are too far apart.
+3. The pairs are taken in the order of their distance, the closest first:
+   - both objects are alone: they form a new group;
+   - one is alone: it joins the group of the other, unless this group already has an object of its source;
+   - both are in a group: the two groups are merged, unless they share a source. This is the step added by the paper.
+4. After a pair is taken, the pairs that it rules out are removed from the list.
+
+The code follows the pseudo-code of the paper line by line. I compared it with the authors' own program
+(github.com/Fusion-Goettingen/TAES_2025_Wolf_T2TA) on 2882 random scenes with the Euclidean distance: the groups are
+the same in every scene. Their program is not copied here: it has no licence file.
+
+### The distance
+
+The paper uses the Euclidean distance. Here the default is the **Mahalanobis distance**, as Godwin asked:
+the distance counted in units of the joint uncertainty of the two objects. "Too far apart" then means two tests:
+
+- **The gate.** The Mahalanobis distance must be below a limit. With the default, a true match passes with a probability of 0.99.
+- **The coincidence test.** The match must be more likely than finding another object at this place by chance.
+  The chance is set by a density: one object per 100 m2 by default.
+
+Why the second test is needed. An old object is vague. Counted in units of its own uncertainty, a vague object
+is "close" to everything. So the gate alone lets it match any object around it. The paper does not have this
+problem: all its tracks have the same uncertainty. Here the objects have very different ages.
+An old object that fails the coincidence test stays alone in its group. It is not thrown away: the fusion will give it
+the reliability of its age. A car object older than about 2.2 s is in this case.
+
+Three distances can be chosen (`AssociationConfig.distance`, option `--distance`):
+
+| Distance | Order of the pairs | Too far apart |
+| --- | --- | --- |
+| `mahalanobis` (default) | Mahalanobis distance | gate, and coincidence test |
+| `likelihood` | Mahalanobis distance plus a term that grows with the size of the uncertainty | gate, and coincidence test |
+| `euclidean` | distance in metres, as in the conference paper | more than `euclidean_limit` (2 m) |
+
+The `likelihood` distance is the negative logarithm of the likelihood of the pair. The same authors replace the Euclidean
+distance by such a likelihood in the journal version of their paper (arXiv:2510.21278), and report that the greedy algorithm
+gains from it.
+
+### What I measured
+
+Run of 60 s with the AoC sensors, 20 vehicles. A fresh pair is two objects of one real object, from two sources,
+both younger than 0.5 s.
+
+Old CPM objects kept in memory (the default, `hold` = none):
+
+| Method | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
+| --- | --- | --- | --- |
+| greedy, Mahalanobis, gate only | 1,837,477 of 2,898,938 | 76.0% | 73.4% |
+| greedy, Mahalanobis, gate and coincidence test (default) | 0 of 404,427 | 95.1% | 92.7% |
+| greedy, likelihood, gate and coincidence test | 0 of 407,827 | 99.3% | 95.8% |
+| greedy, Euclidean, 2 m | 12,641 of 518,009 | 98.0% | 93.7% |
+| sensorwise | 0 of 402,093 | 98.6% | 95.1% |
+
+CPM objects older than 1 s forgotten (`--hold 1.0`):
+
+| Method | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
+| --- | --- | --- | --- |
+| greedy, Mahalanobis, gate only | 0 of 314,077 | 98.6% | 96.2% |
+| greedy, Mahalanobis, gate and coincidence test (default) | 0 of 311,658 | 98.4% | 95.5% |
+| greedy, likelihood, gate and coincidence test | 0 of 312,267 | 99.2% | 95.7% |
+| greedy, Euclidean, 2 m | 0 of 310,607 | 99.1% | 95.2% |
+| sensorwise | 0 of 310,242 | 98.6% | 95.1% |
+
+Run of 60 s with the example sensors (all objects are fresh): every greedy variant finds 100.0% of the fresh pairs
+with no wrong match. The sensorwise method finds 99.7%.
+
+What the numbers say:
+
+- The greedy algorithm of the paper is better than the sensorwise method that I wrote first, when the objects are fresh.
+- With the Mahalanobis distance and the gate alone, old objects ruin the result: two matches out of three are wrong.
+  The coincidence test repairs this completely.
+- With the Mahalanobis distance, the greedy algorithm takes the pairs with an old object first, because they look
+  the closest. This costs fresh pairs. The typical case: a sender lost an object and found it again, so it reports it twice,
+  once old and once fresh. A group takes one object per source. The old one joins first, and the fresh one is left out.
+  With the `likelihood` distance the fresh one joins first. This is the difference between 95.1% and 99.3%.
+- With a short memory (`hold` of 1 s) the three distances are close to each other.
+
+My advice: keep the greedy algorithm, and use the `likelihood` distance. It is still the Mahalanobis distance,
+with one more term for the size of the uncertainty.
+
+### The other method
+
+`method="sensorwise"` is the method that I wrote first. The sources are taken one after the other: the sensors of
+the vehicle, then the senders by name. Each object of a new source is compared with every member of every group,
+and the best global choice is taken with the Hungarian method. It stays in the code as a point of comparison.
+
+### Rules that hold for both methods
 
 - Two objects of one source are never in one group. A source reports a real object once.
-- An old object that fails the coincidence test stays alone in its group. It is not thrown away:
-  the fusion will give it the reliability of its age. With the default settings a car object older than about 2.2 s is in this case.
 - The identifiers given by the sources are not used to match. In particular, the track number of the local environment model
   of Artery is the same for all sensors of a vehicle. It comes from the simulator, and a real vehicle does not have it.
 - Every object needs a source name. A sensor row without a sensor name, or a CPM row without a sender, stops with an error.
 - An exact estimate (a covariance of zero) is given a very small uncertainty of 1 mm, so that it can still be compared.
+- The groups are numbered from 0, in the order in which they first appear in the list of objects.
 
 `oracle_groups(aligned)` gives the perfect association from the ground truth. It is for evaluation and for ablations:
 a fusion variant can be run with the perfect association to separate the effect of the trust handling from the effect of wrong matches.
@@ -95,50 +178,30 @@ a fusion variant can be run with the perfect association to separate the effect 
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
+| `method` | "greedy" | "greedy": the adapted greedy algorithm of the paper. "sensorwise": the other method |
+| `distance` | "mahalanobis" | "mahalanobis", "likelihood" or "euclidean" (greedy method) |
 | `gate_probability` | 0.99 | a true match passes the gate with this probability |
+| `coincidence_test` | True | a match must also be more likely than a chance meeting |
+| `euclidean_limit` | 2.0 | largest distance in m of a match with the Euclidean distance |
 | `use_velocity` | False | False: compare the positions. True: compare positions and speeds |
 | `density_position` | 0.01 | chance objects per m2, for the coincidence test |
 | `density_velocity` | 0.03 | the same for the speed, per (m/s)2; only with `use_velocity` |
 
-Why the positions only by default. On the run of 60 s with the AoC sensors, I measured both:
-
-| Setting | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
-| --- | --- | --- | --- |
-| positions only (default) | 0 of 402,093 | 98.6% | 95.1% |
-| positions and speeds | 4 of 418,827 | 97.6% | 94.3% |
-
-A fresh pair is two objects of one real object, from two sources, both younger than 0.5 s.
-The speed of an old object is the weakest part of its state: the object may have braked or accelerated since.
-Using it removes true matches. The option stays, for scenarios where vehicles cross each other closely.
+Positions only by default. The speed of an old object is the weakest part of its state: the object may have braked
+or accelerated since. With the sensorwise method, using the speeds gave 4 wrong matches and fewer fresh pairs (97.6% against 98.6%).
+The option stays, for scenarios where vehicles cross each other closely.
 
 A lower density (a more tolerant coincidence test) finds almost no more fresh pairs, and it starts to join old objects
-with the wrong vehicle: 1374 wrong matches at a density of 0.003 (one object per 333 m2), 9576 at 0.001 (one per 1000 m2).
+with the wrong vehicle (measured with the sensorwise method: 1374 wrong matches at a density of 0.003, 9576 at 0.001).
 
 ## What the checks say
 
-| Run | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
-| --- | --- | --- | --- |
-| 60 s, AoC sensors, 20 vehicles | 0 of 402,093 | 190,089 of 192,810 (98.6%) | 308,956 of 324,776 (95.1%) |
-| 60 s, example sensors, 20 vehicles | 0 of 7,987,986 | 5,059,092 of 5,076,614 (99.7%) | 7,597,974 of 7,619,959 (99.7%) |
+The command `aoc-associate` passes when at least 99% of the matches are right, 95% of the fresh pairs are found,
+and 90% of the pairs up to 1 s are found. With the default settings and old objects kept in memory, the second number
+is at the limit (95.1%). With `--distance likelihood` or `--hold 1.0` it is well above.
 
-The command passes when at least 99% of the matches are right, 95% of the fresh pairs are found,
-and 90% of the pairs up to 1 s are found.
-
-Where the missed fresh pairs come from (AoC sensors, 2721 pairs):
-
-| Kind of pair | Pairs | Missed | Rate |
-| --- | --- | --- | --- |
-| two sensor rows | 7,956 | 66 | 0.8% |
-| a sensor row and a CPM object | 39,012 | 415 | 1.1% |
-| two CPM objects from two senders | 145,842 | 2,240 | 1.5% |
-
-The gate alone lets 1% of the true matches out, by design. The rest comes from the older objects:
-80% of the missed pairs have a member older than 0.3 s. The motion model does not cover a sustained acceleration,
+Most of the missed fresh pairs have a member older than 0.3 s. The motion model does not cover a sustained acceleration,
 and this is where it shows.
-
-With the default `hold` (none), old CPM objects stay in the memory of the vehicle and each one forms its own group.
-On the AoC run this gives 112 groups per tick for at most 19 real objects. With `--hold 1.0` there are 13 groups per tick,
-and the quality numbers stay the same. The fusion variants choose their own hold time.
 
 How well the predicted uncertainty fits the real error (sample run, squared position error in units of the predicted
 covariance, 2.0 means a perfect fit):
@@ -153,15 +216,27 @@ covariance, 2.0 means a perfect fit):
 So the model is right for fresh objects, a little too confident up to 1 s, and too confident after 1 s in this scenario
 (vehicles that start and accelerate). This is the known limit of the model, already listed in the plan.
 
+With the default `hold` (none), old CPM objects stay in the memory of the vehicle and each one forms its own group.
+On the AoC run this gives 112 groups per tick for at most 19 real objects. With `--hold 1.0` there are 13 groups per tick.
+The fusion variants choose their own hold time.
+
 ## Limits
 
 - The two estimates of a pair are taken as independent. This is the usual simplification. In truth two predictions
   of one object share the same motion error.
-- The order of the sources can change the result in rare cases, because the groups are built source after source.
-  The order is fixed (sensors first, then senders by name), so a run always gives the same groups.
+- The greedy algorithm, as published, can depend on the order of the objects in rare cases. After a pair is taken,
+  it removes other pairs from the list, also when the pair could not be matched. Which pairs are removed depends on the
+  position of the objects in the list. On the AoC run, shuffling the objects changed the groups in 10 ticks out of 817.
+  The authors' program behaves the same. In our pipeline the order is fixed (sensor rows first, then the CPM objects),
+  so a run always gives the same groups. Leaving this removal step out makes the result independent of the order,
+  and it does not change the quality (measured on random scenes and on the AoC run).
+- The greedy algorithm joins groups through their closest pair. Two real objects that are very close to each other
+  can be chained into one group when no source sees both.
 - No memory between ticks: the groups of one tick do not depend on the groups of the tick before, and a group has no
   identifier that lasts in time.
 
 ## Speed
 
-About 5 ms per tick and vehicle for replay, alignment and association together (60 s run, 140 objects per tick).
+About 7 ms per tick and vehicle for replay, alignment, association and the check together (AoC run, 140 objects per tick).
+The greedy method compares every pair of objects, so it gets slower in dense scenes: about 17 ms per tick on the run
+with the example sensors (180 fresh objects per tick).

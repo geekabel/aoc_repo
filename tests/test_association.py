@@ -11,15 +11,22 @@ from aoc.fusion.association import (
     best_matches,
     can_match,
     check_run,
+    greedy_groups,
     oracle_groups,
     pair_costs,
     pair_counts,
+    sensorwise_groups,
     source_order,
 )
 from aoc.fusion.replay import load_run
 
-POSITION = AssociationConfig()
+POSITION = AssociationConfig()                                   # the default: greedy, Mahalanobis distance, positions only
 WITH_SPEED = AssociationConfig(use_velocity=True)
+LIKELIHOOD = AssociationConfig(distance="likelihood")
+SENSORWISE = AssociationConfig(method="sensorwise")
+EUCLIDEAN = AssociationConfig(distance="euclidean", euclidean_limit=10.0)      # the setting of the paper
+GATE_ONLY = AssociationConfig(coincidence_test=False)
+EVERY_METHOD = pytest.mark.parametrize("config", [POSITION, LIKELIHOOD, SENSORWISE], ids=["greedy", "greedy-likelihood", "sensorwise"])
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +64,9 @@ def test_settings():
     assert WITH_SPEED.dimension == 4 and WITH_SPEED.gate == pytest.approx(13.2767, abs=1e-3)
     assert POSITION.log_density == pytest.approx(np.log(0.01))
     assert WITH_SPEED.log_density == pytest.approx(np.log(0.01 * 0.03))
-    for bad in (dict(gate_probability=1.0), dict(gate_probability=0.0), dict(density_position=0.0), dict(density_velocity=-1.0)):
+    assert POSITION.method == "greedy" and POSITION.distance == "mahalanobis" and POSITION.coincidence_test
+    for bad in (dict(gate_probability=1.0), dict(gate_probability=0.0), dict(density_position=0.0), dict(density_velocity=-1.0),
+                dict(method="best"), dict(distance="manhattan"), dict(euclidean_limit=0.0)):
         with pytest.raises(ValueError):
             AssociationConfig(**bad)
 
@@ -142,44 +151,57 @@ def test_one_group_takes_one_object_of_a_source():
 # ----------------------------------------------------------------------------
 # Groups
 # ----------------------------------------------------------------------------
-def test_three_objects_seen_by_three_sources():
+@EVERY_METHOD
+def test_three_objects_seen_by_three_sources(config):
     rows = []
     for source, shift in (("radar_a", 0.0), ("radar_b", 0.2), ("v2x:car7", -0.2)):
         rows += [(source, "a", 0.0 + shift, 0.0), (source, "b", 10.0 + shift, 0.0), (source, "c", 0.0 + shift, 12.0)]
     aligned = make(rows)
-    groups = associate(aligned)
+    groups = associate(aligned, config)
     assert groups.tolist() == [0, 1, 2, 0, 1, 2, 0, 1, 2]
     assert same_partition(groups, oracle_groups(aligned))
 
 
-def test_objects_far_apart_stay_alone():
-    groups = associate(make([("s1", "a", 0.0, 0.0), ("s2", "b", 3.0, 0.0), ("s3", "c", 0.0, 3.0)]))
+@EVERY_METHOD
+def test_objects_far_apart_stay_alone(config):
+    groups = associate(make([("s1", "a", 0.0, 0.0), ("s2", "b", 3.0, 0.0), ("s3", "c", 0.0, 3.0)]), config)
     assert groups.tolist() == [0, 1, 2]
 
 
-def test_two_objects_of_one_source_are_never_in_one_group():
+@EVERY_METHOD
+def test_two_objects_of_one_source_are_never_in_one_group(config):
     # s2 reports two objects 20 cm apart, both close to the object of s1
     aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 0.1, 0.0), ("s2", "b", -0.1, 0.0), ("s1", "b", 9.0, 9.0)])
-    groups = associate(aligned)
+    groups = associate(aligned, config)
     assert groups[1] != groups[2]
     assert sorted(groups.tolist()) == [0, 1, 1, 2] or sorted(groups.tolist()) == [0, 0, 1, 2]
     assert (groups[0] == groups[1]) != (groups[0] == groups[2])              # exactly one of the two joins s1
 
 
-def test_a_vague_object_stays_alone_even_at_the_same_place():
+@EVERY_METHOD
+def test_a_vague_object_stays_alone_even_at_the_same_place(config):
     aligned = make([("s1", "a", 0.0, 0.0), ("v2x:old", "a", 0.0, 0.0, 30.0), ("s2", "a", 0.1, 0.1)])
-    assert associate(aligned).tolist() == [0, 1, 0]                           # s1 and s2 form one group, the sender is alone
+    assert associate(aligned, config).tolist() == [0, 1, 0]                   # s1 and s2 form one group, the sender is alone
 
 
-def test_a_chain_through_a_common_neighbour():
+def test_without_the_coincidence_test_a_vague_object_matches_anything():
+    # a sender reports an object with an uncertainty of 30 m, 20 m away from a fresh sensor row of another object
+    aligned = make([("s1", "a", 0.0, 0.0), ("v2x:old", "b", 20.0, 0.0, 30.0)])
+    assert associate(aligned, POSITION).tolist() == [0, 1]
+    assert associate(aligned, GATE_ONLY).tolist() == [0, 0]                   # the gate alone lets the wrong match in
+
+
+@EVERY_METHOD
+def test_a_chain_through_a_common_neighbour(config):
     # the third object is too far from the first one, but close to the second one: it joins through it
     aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 1.0, 0.0), ("s3", "a", 2.0, 0.0)])
     distance, _ = pair_costs(aligned.state[:1], aligned.cov[:1], aligned.state[2:], aligned.cov[2:], POSITION)
     assert distance[0, 0] > POSITION.gate
-    assert associate(aligned).tolist() == [0, 0, 0]
+    assert associate(aligned, config).tolist() == [0, 0, 0]
 
 
-def test_order_of_the_rows_does_not_change_the_groups():
+@EVERY_METHOD
+def test_order_of_the_rows_does_not_change_the_groups_of_well_separated_objects(config):
     rng = np.random.default_rng(3)
     rows = []
     for k in range(12):                                                       # 12 real objects on a grid of 8 m
@@ -188,27 +210,30 @@ def test_order_of_the_rows_does_not_change_the_groups():
             if rng.uniform() < 0.8:
                 rows.append((source, "obj%d" % k, cx + 0.3 * rng.standard_normal(), cy + 0.3 * rng.standard_normal()))
     aligned = make(rows)
-    groups = associate(aligned)
+    groups = associate(aligned, config)
     assert same_partition(groups, oracle_groups(aligned))
     order = rng.permutation(len(rows))
     shuffled = make([rows[i] for i in order])
-    assert same_partition(associate(shuffled), groups[order])
+    assert same_partition(associate(shuffled, config), groups[order])
 
 
-def test_group_numbers_are_dense_and_cover_every_object(run):
+@EVERY_METHOD
+def test_group_numbers_are_dense_and_cover_every_object(run, config):
     for tick in list(run.replay("flow0.1"))[::9]:
         aligned = align(tick)
-        groups = associate(aligned)
+        groups = associate(aligned, config)
         assert len(groups) == len(aligned)
         if len(groups):
             assert sorted(set(groups.tolist())) == list(range(groups.max() + 1))
+            firsts = [groups.tolist().index(g) for g in range(groups.max() + 1)]
+            assert firsts == sorted(firsts)                                    # numbered in the order of first appearance
             pairs = set(zip(groups.tolist(), aligned.objects["source"]))
             assert len(pairs) == len(groups)                                   # one object per source in a group
 
 
 def test_exact_estimates_can_be_compared():
     # a covariance of zero (an exact estimate) must not break the comparison
-    for config in (POSITION, WITH_SPEED):
+    for config in (POSITION, WITH_SPEED, LIKELIHOOD, SENSORWISE):
         aligned = make([("s1", "a", 5.0, 5.0), ("s2", "a", 5.0, 5.0), ("s3", "b", 5.02, 5.0)], sigma=0.0, sigma_v=0.0)
         assert associate(aligned, config).tolist() == [0, 0, 1]              # 2 cm apart is another object when both are exact
 
@@ -216,12 +241,15 @@ def test_exact_estimates_can_be_compared():
 def test_an_object_without_a_source_is_refused():
     for missing in (None, np.nan):
         aligned = make([("s1", "a", 0.0, 0.0), (missing, "a", 0.0, 0.0)])
-        with pytest.raises(ValueError, match="source"):
-            associate(aligned)
+        for config in (POSITION, SENSORWISE):
+            with pytest.raises(ValueError, match="source"):
+                associate(aligned, config)
 
 
 def test_empty_tick():
     assert associate(make([])).tolist() == []
+    assert associate(make([]), SENSORWISE).tolist() == []
+    assert associate(make([("s1", "a", 0.0, 0.0)])).tolist() == [0]
     assert pair_counts(make([]), np.zeros(0, dtype=np.int64))["same_group"] == 0
 
 
@@ -230,6 +258,121 @@ def test_with_speed_two_objects_at_one_place_with_other_speeds_stay_apart():
     aligned.state[1, 2] = 8.0                                                 # the second one drives at 8 m/s
     assert associate(aligned, POSITION).tolist() == [0, 0]
     assert associate(aligned, WITH_SPEED).tolist() == [0, 1]
+
+
+# ----------------------------------------------------------------------------
+# The adapted greedy algorithm of the paper (Wolf et al., FUSION 2023, Algorithm 1)
+# ----------------------------------------------------------------------------
+def paper_algorithm(positions, sensors, d_t, d_m=9999.0):
+    """Algorithm 1 of the paper, written line by line from its pseudo-code, with the Euclidean distance."""
+    n = len(positions)
+    theta = list(range(1, n + 1))
+    dist = np.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=2)
+    for i in range(n):
+        for j in range(n):
+            if j >= i or dist[i, j] > d_t or sensors[i] == sensors[j]:
+                dist[i, j] = d_m
+    k = n + 1
+
+    def cluster(label):
+        return [t for t in range(n) if theta[t] == label]
+
+    def sensors_of(label):
+        return {sensors[t] for t in cluster(label)}
+
+    while dist.min() < d_m:
+        i, j = np.unravel_index(np.argmin(dist), dist.shape)
+        if len(cluster(theta[i])) == 1 and len(cluster(theta[j])) == 1:
+            theta[i] = theta[j] = k
+            k += 1
+        elif len(cluster(theta[i])) == 1 and sensors[i] not in sensors_of(theta[j]):
+            theta[i] = theta[j]
+        elif len(cluster(theta[j])) == 1 and sensors[j] not in sensors_of(theta[i]):
+            theta[j] = theta[i]
+        elif theta[j] != theta[i] and not (sensors_of(theta[i]) & sensors_of(theta[j])):
+            for t in cluster(theta[i]):
+                theta[t] = theta[j]
+        for t in range(n):
+            if sensors[t] == sensors[j]:
+                dist[i, t] = d_m
+            if sensors[t] == sensors[i]:
+                dist[t, j] = d_m
+    return np.array(theta)
+
+
+def test_greedy_gives_the_groups_of_the_paper_algorithm():
+    rng = np.random.default_rng(4)
+    scenes = 0
+    for _ in range(300):
+        n_objects, n_sensors = int(rng.integers(1, 9)), int(rng.integers(1, 7))
+        area, sigma, p_detect = rng.choice([10.0, 20.0, 40.0]), rng.choice([0.5, 1.0, 2.0]), rng.uniform(0.3, 1.0)
+        true = rng.uniform(0.0, area, (n_objects, 2))
+        rows = [("s%d" % s, "o%d" % o, *(true[o] + sigma * rng.standard_normal(2)))
+                for s in range(n_sensors) for o in range(n_objects) if rng.uniform() < p_detect]
+        if len(rows) < 2:
+            continue
+        rows = [rows[i] for i in rng.permutation(len(rows))]
+        aligned = make(rows)
+        mine = greedy_groups(aligned, EUCLIDEAN)
+        paper = paper_algorithm(aligned.state[:, :2], [row[0] for row in rows], d_t=10.0)
+        assert same_partition(mine, paper)
+        scenes += 1
+    assert scenes > 250
+
+
+def test_greedy_merges_two_groups():
+    # Fig. 1b of the paper: one object seen by four sensors. The pairs (s1, s2) and (s3, s4) are the closest
+    # and form two groups. The greedy algorithm without the merging step would stop there.
+    aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 0.1, 0.0), ("s3", "a", 1.0, 0.0), ("s4", "a", 1.1, 0.0)])
+    assert greedy_groups(aligned).tolist() == [0, 0, 0, 0]
+
+
+def test_greedy_does_not_merge_groups_that_share_a_source():
+    aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 0.1, 0.0), ("s2", "b", 1.0, 0.0), ("s3", "b", 1.1, 0.0)])
+    assert greedy_groups(aligned).tolist() == [0, 0, 1, 1]
+
+
+def test_greedy_lone_object_does_not_join_a_group_that_has_its_source():
+    aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 0.05, 0.0), ("s1", "b", 0.6, 0.0)])
+    assert greedy_groups(aligned).tolist() == [0, 0, 1]
+
+
+def test_greedy_takes_the_closest_pair_first():
+    # the object of s2 lies between two objects of s1, a little closer to the second one
+    aligned = make([("s1", "a", 0.0, 0.0), ("s1", "b", 1.0, 0.0), ("s2", "b", 0.6, 0.0)])
+    assert greedy_groups(aligned).tolist() == [0, 1, 1]
+
+
+def test_greedy_pair_removal_step_of_the_paper_depends_on_the_order():
+    # After a pair is taken, the paper removes other pairs from the list, also when the pair could not be matched.
+    # Here a2 cannot join the group of a1 and b1. With one order of the rows the pair (a2, b2) is then removed too,
+    # with another order it is kept. This is the algorithm as published; the authors' own program does the same.
+    a1, b1, a2, b2 = ("A", "x", 0.0, 0.0), ("B", "x", 0.05, 0.0), ("A", "y", 0.5, 0.0), ("B", "y", 1.0, 0.0)
+    assert greedy_groups(make([a1, b1, a2, b2]), EUCLIDEAN).tolist() == [0, 0, 1, 1]
+    assert greedy_groups(make([a1, b1, b2, a2]), EUCLIDEAN).tolist() == [0, 0, 1, 2]
+
+
+def test_greedy_order_of_the_pairs_with_an_old_and_a_fresh_object_of_one_sender():
+    # A sender lost an object and found it again: it reports it twice, once old (1.6 m of uncertainty) and once fresh.
+    # A group takes one object per source, so only one of the two can join the sensor row of the vehicle.
+    aligned = make([("radar", "a", 0.0, 0.0), ("v2x:car7", "a", 0.6, 0.0, 1.6), ("v2x:car7", "a", 0.5, 0.0)])
+    distance, cost = pair_costs(aligned.state[:1], aligned.cov[:1], aligned.state[1:], aligned.cov[1:], POSITION)
+    assert distance[0, 0] < distance[0, 1] and cost[0, 0] > cost[0, 1]         # the old one is "closer", the fresh one is more likely
+    assert greedy_groups(aligned, POSITION).tolist() == [0, 0, 1]             # Mahalanobis order: the old one joins, the fresh one is left out
+    assert greedy_groups(aligned, LIKELIHOOD).tolist() == [0, 1, 0]           # likelihood order: the fresh one joins
+
+
+def test_greedy_with_the_euclidean_distance_ignores_the_uncertainty():
+    aligned = make([("s1", "a", 0.0, 0.0), ("s2", "a", 1.5, 0.0), ("s3", "b", 9.0, 0.0, 30.0)])
+    assert greedy_groups(aligned, AssociationConfig(distance="euclidean", euclidean_limit=2.0)).tolist() == [0, 0, 1]
+    assert greedy_groups(aligned, AssociationConfig(distance="euclidean", euclidean_limit=1.0)).tolist() == [0, 1, 2]
+    assert greedy_groups(aligned, EUCLIDEAN).tolist() == [0, 0, 0]            # 10 m: the vague object 7.5 m away joins too
+
+
+def test_associate_chooses_the_method():
+    aligned = make([("radar", "a", 0.0, 0.0), ("v2x:car7", "a", 0.6, 0.0, 1.6), ("v2x:car7", "a", 0.5, 0.0)])
+    assert associate(aligned).tolist() == greedy_groups(aligned).tolist()
+    assert associate(aligned, SENSORWISE).tolist() == sensorwise_groups(aligned, SENSORWISE).tolist() == [0, 1, 0]
 
 
 # ----------------------------------------------------------------------------
@@ -270,14 +413,30 @@ def test_check_of_the_sample_run_passes(run, exported_runs, capsys):
     assert association_module.main([str(folder)]) == 0
     assert "result:              PASS" in capsys.readouterr().out
     assert association_module.main([str(folder), "--with-speed", "--hold", "1.0"]) == 0
+    capsys.readouterr()
+    for options, words in ((["--distance", "likelihood"], "greedy, likelihood distance"),
+                           (["--method", "sensorwise"], "sensorwise"),
+                           (["--distance", "euclidean", "--euclidean-limit", "1.5"], "Euclidean distance up to 1.5 m")):
+        assert association_module.main([str(folder), *options]) == 0
+        assert words in capsys.readouterr().out
+    assert association_module.main([str(folder), "--no-coincidence-test", "--hold", "1.0"]) == 0
     assert association_module.main([str(folder / "missing")]) == 2
     assert association_module.main([str(folder), "--gate", "2"]) == 2
 
 
-def test_check_of_the_run_with_the_example_sensors_passes(exported_runs):
+@EVERY_METHOD
+def test_check_of_the_run_with_the_example_sensors_passes(exported_runs, config):
     folder, _ = exported_runs["run_example_sensors"]
-    result = check_run(load_run(folder))
+    result = check_run(load_run(folder), config)
     assert result["result"] == "PASS" and result["precision"] > 0.999 and result["recall_fresh"] > 0.97
+
+
+def test_gate_alone_fails_on_old_objects(run):
+    # the sample run keeps old CPM objects in memory: without the coincidence test they are matched with anything
+    loose = check_run(run, GATE_ONLY)
+    assert loose["precision"] < 0.99 and loose["result"] == "FAIL"
+    assert check_run(run, POSITION)["precision"] == 1.0
+    assert check_run(run, GATE_ONLY, hold=1.0)["result"] == "PASS"            # with a short memory the gate is enough
 
 
 def test_check_fails_on_a_bad_association(run, monkeypatch):

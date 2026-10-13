@@ -92,6 +92,8 @@ aligned = align(tick)                                # every object moved to the
 groups = associate(aligned)                          # one group number per object
 ```
 
+The association is the adapted greedy algorithm of Wolf et al. (FUSION 2023), with the Mahalanobis distance.
+
 Run a simulation on the workstation: see `artery-ext/README.md`.
 
 ## Names in the note and names in the code
