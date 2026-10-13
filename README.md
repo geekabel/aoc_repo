@@ -12,14 +12,14 @@ This repository holds what the tasks produce.
 | --- | --- | --- |
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table | A8 |
-| `src/aoc/fusion/` | Replay and fusion pipeline. Empty for now | B2 to B7 |
+| `src/aoc/fusion/` | Replay loader and noise model. The fusion steps come next | B2 (done), B3 to B7 |
 | `src/aoc/analysis/` | Metrics and aggregation. Empty for now | B8, D4 |
 | `artery-ext/` | Logger for Artery, config files, scripts for the workstation | A6, A7, A8 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers. Empty for now | D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data` | B1 |
-| `docs/` | Schema of the tables, notes about Artery, issue draft | A8 |
+| `docs/` | Schema of the tables, the replay, notes about Artery, issue draft | A8, B2 |
 
 ## Quick start
 
@@ -43,6 +43,7 @@ Other commands:
 | `make scripts` | Builds the workstation scripts again after a change of a source file |
 | `make schema` | Writes `docs/observations_schema.md` again after a change of the columns |
 | `aoc-export RUN_FOLDER` | Turns the logs of one simulation run into parquet files |
+| `aoc-replay RUN_FOLDER` | Checks an exported run: noise model and replay of every vehicle |
 
 ## Typical uses
 
@@ -68,6 +69,16 @@ aoc-export tests/data/run_aoc_sensors --out /tmp/run_aoc
 import pandas as pd
 obs = pd.read_parquet("/tmp/run_aoc/observations.parquet")
 print(obs[obs.src == "v2x"][["t_rx", "rx_station", "tx_station", "gt_match_id", "age"]].head())
+```
+
+Replay the run for one vehicle, tick by tick (details in `docs/replay.md`):
+
+```python
+from aoc.fusion.replay import load_run
+
+run = load_run("/tmp/run_aoc")                       # adds the measurement noise (sigma_x 0.3 m, sigma_v 0.5 m/s)
+for tick in run.replay("flow0.0"):                   # one tick every 0.1 s
+    print(tick.t, len(tick.local), len(tick.v2x_new), len(tick.v2x))
 ```
 
 Run a simulation on the workstation: see `artery-ext/README.md`.

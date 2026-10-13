@@ -1,7 +1,10 @@
-"""The replay and fusion pipeline. Empty for now.
+"""The replay and fusion pipeline.
 
-Planned modules (tasks B2 to B7 of the Plan):
-  replay       loads observations.parquet and replays it step by step, with the noise model (B2)
+Written:
+  noise        the noise model of the replay: true state at the measurement time plus seeded noise (B2)
+  replay       loads an exported run and replays it tick by tick for one vehicle (B2, command ``aoc-replay``)
+
+Planned (tasks B3 to B7 of the Plan):
   association  aligns the objects in time and matches them (B3)
   bba          builds the mass functions for existence and class (B4)
   discounting  contextual discounting with alpha(age) (B5)
