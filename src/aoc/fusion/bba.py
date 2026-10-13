@@ -18,6 +18,9 @@ Where the score s comes from
      Artery gives no score, so today every score comes from this table.
   The values of the table are assumed values, like the motion values of the theory note.
 
+Not lowered with age: the class. An object seen three seconds ago may have moved, but it has not changed its
+class. So the discounting of task B5 lowers the existence evidence only (decision of 2026-10-13).
+
     from aoc.fusion.bba import build_evidence
     evidence = build_evidence(aligned.objects)
     evidence.existence        # one row per object, columns: empty, {E}, {notE}, {E, notE}
@@ -56,8 +59,10 @@ CLASS_OF_LABEL: dict[str, str] = {
     "pedestrian": "pedestrian",
 }
 
-#: Existence score of an object, by the origin of its measurement. Assumed values.
-EXISTENCE_SCORE: dict[str, float] = {"radar": 0.9, "fov": 0.9, "see_through": 0.9, "cam_msg": 0.9}
+#: Existence score of an object, by the origin of its measurement.
+#: Decision of 2026-10-13: 0.99. In the simulator every reported object is real, so a lower score makes every
+#: fresh object look less sure than it is. It is not 1: a certainty could never be corrected later.
+EXISTENCE_SCORE: dict[str, float] = {"radar": 0.99, "fov": 0.99, "see_through": 0.99, "cam_msg": 0.99}
 
 
 @dataclass(frozen=True)
@@ -65,13 +70,13 @@ class EvidenceModel:
     """How a reported object becomes evidence.
 
     existence_score     score s by origin of the measurement (column ``meas_src``)
-    existence_default   score for an origin that is not in the table (default 0.9)
+    existence_default   score for an origin that is not in the table (default 0.99)
     class_confidence    confidence c in the class named by the source (default 0.9)
     class_of_label      class of the frame for each class name of the observations
     """
 
     existence_score: Mapping[str, float] = field(default_factory=lambda: dict(EXISTENCE_SCORE))
-    existence_default: float = 0.9
+    existence_default: float = 0.99
     class_confidence: float = 0.9
     class_of_label: Mapping[str, str] = field(default_factory=lambda: dict(CLASS_OF_LABEL))
 
@@ -175,7 +180,7 @@ def check_run(run: Run, model: EvidenceModel | None = None, period: float = 0.1)
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Build the existence and class evidence of every object of an exported run, and check it.")
     ap.add_argument("run_dir", help="folder with observations.parquet and truth.parquet (written by aoc-export)")
-    ap.add_argument("--score", type=float, default=0.9, help="existence score of a reported object (default 0.9)")
+    ap.add_argument("--score", type=float, default=0.99, help="existence score of a reported object (default 0.99)")
     ap.add_argument("--class-confidence", type=float, default=0.9, help="confidence in the class named by the source (default 0.9)")
     ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
     args = ap.parse_args(argv)

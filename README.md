@@ -12,14 +12,14 @@ This repository holds what the tasks produce.
 | --- | --- | --- |
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table | A8 |
-| `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence. The fusion steps come next | B2 to B4 (done), B5 to B7 |
-| `src/aoc/analysis/` | Metrics and aggregation. Empty for now | B8, D4 |
+| `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age. The combination comes next | B2 to B5 (done), B6, B7 |
+| `src/aoc/analysis/` | Calibration error, real motion of the objects. The other metrics and the aggregation come later | B5, B8, D4 |
 | `artery-ext/` | Logger for Artery, config files, scripts for the workstation | A6, A7, A8 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers. Empty for now | D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data` | B1 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, notes about Artery, issue draft | A8, B2 to B4 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, notes about Artery, issue draft | A8, B2 to B5 |
 
 ## Quick start
 
@@ -29,7 +29,7 @@ Python 3.10 or newer.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,figures]"
-make check          # code style, then the tests (a few seconds)
+make check          # code style, then the tests (about two minutes)
 ```
 
 Other commands:
@@ -46,6 +46,7 @@ Other commands:
 | `aoc-replay RUN_FOLDER` | Checks an exported run: noise model and replay of every vehicle |
 | `aoc-associate RUN_FOLDER` | Checks the association of a run against the ground truth |
 | `aoc-evidence RUN_FOLDER` | Builds the existence and class evidence of every object of a run and checks it |
+| `aoc-discount RUN_FOLDER` | Lowers the existence evidence of every object by its age, checks it, and compares full trust, a hard cutoff and the discount |
 
 ## Typical uses
 
@@ -102,6 +103,14 @@ Turn each object into evidence (details in `docs/evidence.md`):
 from aoc.fusion.bba import build_evidence
 
 evidence = build_evidence(aligned.objects)           # existence and class mass functions, one row per object
+```
+
+Lower the evidence of each object by its age (details in `docs/discount.md`):
+
+```python
+from aoc.fusion.discounting import discount_evidence
+
+trusted = discount_evidence(evidence, aligned.objects)   # trusted.reliability: the alpha of each object
 ```
 
 Run a simulation on the workstation: see `artery-ext/README.md`.

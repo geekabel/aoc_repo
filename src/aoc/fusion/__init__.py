@@ -7,11 +7,13 @@ Written:
   association  decides which objects of a tick are the same real object, with the adapted greedy
                algorithm of Wolf et al. and a likelihood distance (B3, command ``aoc-associate``)
 
-  belief       mass functions on small frames, for many objects at once: belief, plausibility, pignistic (B4)
+  belief       mass functions on small frames, for many objects at once: belief, plausibility, pignistic (B4),
+               classical and contextual discounting, disjunctive rule (B5)
   bba          the existence and class evidence of each reported object (B4, command ``aoc-evidence``)
+  discounting  the reliability alpha of each object from its age, and the discount of its existence evidence,
+               with the two baselines full trust and hard cutoff (B5, command ``aoc-discount``)
 
-Planned (tasks B5 to B7 of the Plan):
-  discounting  contextual discounting with alpha(age) (B5)
+Planned (tasks B6 and B7 of the Plan):
   combination  Dempster and cautious rules (B6)
   kinematics   fusion of position and speed by covariance intersection (B7)
 """
