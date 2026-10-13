@@ -24,6 +24,7 @@ figures = ["matplotlib>=3.7"]
 aoc-export = "aoc.io.export:main"
 aoc-replay = "aoc.fusion.replay:main"
 aoc-associate = "aoc.fusion.association:main"
+aoc-evidence = "aoc.fusion.bba:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
