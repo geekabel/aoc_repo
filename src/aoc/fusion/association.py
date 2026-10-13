@@ -15,7 +15,9 @@ All objects are first moved to the time of the tick (``aoc.fusion.alignment``). 
                      (the Hungarian method). See ``sensorwise_groups``.
 
 What "close" means is set by ``AssociationConfig.distance``. The paper uses the Euclidean distance.
-The default here is the Mahalanobis distance: the distance counted in units of the uncertainty of the two objects.
+The default here is the "likelihood" distance: the Mahalanobis distance (the distance counted in units of the
+uncertainty of the two objects) plus a term that grows with the size of this uncertainty. With the Mahalanobis
+distance alone, a vague old object looks closer than a fresh one and is served first (decision of 2026-10-13).
 
 Two tests decide if a pair may be matched at all:
   - the gate: the Mahalanobis distance must be below a limit;
@@ -75,9 +77,9 @@ class AssociationConfig:
     method             "greedy" (default): the adapted greedy algorithm of Wolf et al. (see ``greedy_groups``).
                        "sensorwise": the sources one after the other, with the best global match for each (``sensorwise_groups``).
     distance           what "close" means for two objects, and in which order the greedy algorithm takes the pairs:
-                       "mahalanobis" (default)  the distance counted in units of the joint uncertainty of the two objects
-                       "likelihood"             the same, plus a term that grows with the size of the uncertainty
-                                                (the negative logarithm of the likelihood of the pair)
+                       "likelihood" (default)   the Mahalanobis distance plus a term that grows with the size of the
+                                                uncertainty (the negative logarithm of the likelihood of the pair)
+                       "mahalanobis"            the distance counted in units of the joint uncertainty of the two objects
                        "euclidean"              the plain distance in metres, as in the conference paper
     gate_probability   a true match passes the gate with this probability (default 0.99); not used with "euclidean"
     coincidence_test   True (default): a match must also be more likely than a chance meeting. A vague object fails it.
@@ -89,7 +91,7 @@ class AssociationConfig:
     """
 
     method: str = "greedy"
-    distance: str = "mahalanobis"
+    distance: str = "likelihood"
     gate_probability: float = 0.99
     coincidence_test: bool = True
     euclidean_limit: float = 2.0
@@ -247,8 +249,9 @@ def greedy_groups(aligned: Aligned, config: AssociationConfig | None = None) -> 
          of the first one.
 
     One thing differs from the paper, as Godwin asked: the distance. The paper uses the Euclidean distance.
-    Here the default is the Mahalanobis distance, which counts the distance in units of the uncertainty of the
-    two objects (``config.distance``). "Too far apart" is then the gate, plus the coincidence test if it is on.
+    Here the distance uses the uncertainty of the two objects (``config.distance``): the Mahalanobis distance,
+    or by default the "likelihood" distance, which is the Mahalanobis distance plus a term for the size of the
+    uncertainty. "Too far apart" is then the gate on the Mahalanobis distance, plus the coincidence test if it is on.
     """
     config = config or AssociationConfig()
     n = len(aligned)
@@ -492,7 +495,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Align and associate every tick of an exported run, and compare the result with the ground truth.")
     ap.add_argument("run_dir", help="folder with observations.parquet and truth.parquet (written by aoc-export)")
     ap.add_argument("--method", choices=METHODS, default="greedy", help="greedy: the adapted greedy algorithm (default); sensorwise")
-    ap.add_argument("--distance", choices=DISTANCES, default="mahalanobis", help="distance of the greedy algorithm (default mahalanobis)")
+    ap.add_argument("--distance", choices=DISTANCES, default="likelihood", help="distance of the greedy algorithm (default likelihood)")
     ap.add_argument("--no-coincidence-test", action="store_true", help="allow a match on the gate alone")
     ap.add_argument("--euclidean-limit", type=float, default=2.0, help="largest distance of a match in m with --distance euclidean (default 2)")
     ap.add_argument("--seed", type=int, default=0, help="seed of the noise (default 0)")

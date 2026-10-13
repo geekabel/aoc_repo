@@ -20,13 +20,14 @@ from aoc.fusion.association import (
 )
 from aoc.fusion.replay import load_run
 
-POSITION = AssociationConfig()                                   # the default: greedy, Mahalanobis distance, positions only
+POSITION = AssociationConfig()                                   # the default: greedy, likelihood distance, positions only
 WITH_SPEED = AssociationConfig(use_velocity=True)
 LIKELIHOOD = AssociationConfig(distance="likelihood")
+MAHALANOBIS = AssociationConfig(distance="mahalanobis")
 SENSORWISE = AssociationConfig(method="sensorwise")
 EUCLIDEAN = AssociationConfig(distance="euclidean", euclidean_limit=10.0)      # the setting of the paper
-GATE_ONLY = AssociationConfig(coincidence_test=False)
-EVERY_METHOD = pytest.mark.parametrize("config", [POSITION, LIKELIHOOD, SENSORWISE], ids=["greedy", "greedy-likelihood", "sensorwise"])
+GATE_ONLY = AssociationConfig(distance="mahalanobis", coincidence_test=False)
+EVERY_METHOD = pytest.mark.parametrize("config", [POSITION, MAHALANOBIS, SENSORWISE], ids=["greedy", "greedy-mahalanobis", "sensorwise"])
 
 
 @pytest.fixture(scope="module")
@@ -64,7 +65,8 @@ def test_settings():
     assert WITH_SPEED.dimension == 4 and WITH_SPEED.gate == pytest.approx(13.2767, abs=1e-3)
     assert POSITION.log_density == pytest.approx(np.log(0.01))
     assert WITH_SPEED.log_density == pytest.approx(np.log(0.01 * 0.03))
-    assert POSITION.method == "greedy" and POSITION.distance == "mahalanobis" and POSITION.coincidence_test
+    assert POSITION.method == "greedy" and POSITION.distance == "likelihood" and POSITION.coincidence_test
+    assert POSITION == LIKELIHOOD
     for bad in (dict(gate_probability=1.0), dict(gate_probability=0.0), dict(density_position=0.0), dict(density_velocity=-1.0),
                 dict(method="best"), dict(distance="manhattan"), dict(euclidean_limit=0.0)):
         with pytest.raises(ValueError):
@@ -233,7 +235,7 @@ def test_group_numbers_are_dense_and_cover_every_object(run, config):
 
 def test_exact_estimates_can_be_compared():
     # a covariance of zero (an exact estimate) must not break the comparison
-    for config in (POSITION, WITH_SPEED, LIKELIHOOD, SENSORWISE):
+    for config in (POSITION, WITH_SPEED, MAHALANOBIS, SENSORWISE):
         aligned = make([("s1", "a", 5.0, 5.0), ("s2", "a", 5.0, 5.0), ("s3", "b", 5.02, 5.0)], sigma=0.0, sigma_v=0.0)
         assert associate(aligned, config).tolist() == [0, 0, 1]              # 2 cm apart is another object when both are exact
 
@@ -358,8 +360,9 @@ def test_greedy_order_of_the_pairs_with_an_old_and_a_fresh_object_of_one_sender(
     aligned = make([("radar", "a", 0.0, 0.0), ("v2x:car7", "a", 0.6, 0.0, 1.6), ("v2x:car7", "a", 0.5, 0.0)])
     distance, cost = pair_costs(aligned.state[:1], aligned.cov[:1], aligned.state[1:], aligned.cov[1:], POSITION)
     assert distance[0, 0] < distance[0, 1] and cost[0, 0] > cost[0, 1]         # the old one is "closer", the fresh one is more likely
-    assert greedy_groups(aligned, POSITION).tolist() == [0, 0, 1]             # Mahalanobis order: the old one joins, the fresh one is left out
-    assert greedy_groups(aligned, LIKELIHOOD).tolist() == [0, 1, 0]           # likelihood order: the fresh one joins
+    assert greedy_groups(aligned, MAHALANOBIS).tolist() == [0, 0, 1]          # Mahalanobis order: the old one joins, the fresh one is left out
+    assert greedy_groups(aligned, LIKELIHOOD).tolist() == [0, 1, 0]           # likelihood order (the default): the fresh one joins
+    assert greedy_groups(aligned).tolist() == [0, 1, 0]
 
 
 def test_greedy_with_the_euclidean_distance_ignores_the_uncertainty():
@@ -411,10 +414,11 @@ def test_check_of_the_sample_run_passes(run, exported_runs, capsys):
     assert result["same_source_twice_in_a_group"] == 0
     folder, _ = exported_runs["run_aoc_sensors"]
     assert association_module.main([str(folder)]) == 0
-    assert "result:              PASS" in capsys.readouterr().out
+    report = capsys.readouterr().out
+    assert "result:              PASS" in report and "greedy, likelihood distance" in report
     assert association_module.main([str(folder), "--with-speed", "--hold", "1.0"]) == 0
     capsys.readouterr()
-    for options, words in ((["--distance", "likelihood"], "greedy, likelihood distance"),
+    for options, words in ((["--distance", "mahalanobis"], "greedy, Mahalanobis distance"),
                            (["--method", "sensorwise"], "sensorwise"),
                            (["--distance", "euclidean", "--euclidean-limit", "1.5"], "Euclidean distance up to 1.5 m")):
         assert association_module.main([str(folder), *options]) == 0

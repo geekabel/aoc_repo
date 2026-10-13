@@ -6,7 +6,8 @@ that sends CPMs. Several of these objects are the same real object. Task B3 answ
 1. Where is each object now? (`aoc.fusion.alignment`)
 2. Which objects are the same real object? (`aoc.fusion.association`)
 
-The association uses the adapted greedy algorithm of Wolf et al. (FUSION 2023), with the Mahalanobis distance.
+The association uses the adapted greedy algorithm of Wolf et al. (FUSION 2023), with a likelihood distance
+(the Mahalanobis distance plus a term for the size of the uncertainty).
 
 ## Check a run
 
@@ -89,8 +90,10 @@ the same in every scene. Their program is not copied here: it has no licence fil
 
 ### The distance
 
-The paper uses the Euclidean distance. Here the default is the **Mahalanobis distance**, as Godwin asked:
-the distance counted in units of the joint uncertainty of the two objects. "Too far apart" then means two tests:
+The paper uses the Euclidean distance. Godwin asked for the Mahalanobis distance: the distance counted in units
+of the joint uncertainty of the two objects. After the measurements below, the default is the **likelihood distance**
+(decision of 2026-10-13): the Mahalanobis distance plus a term that grows with the size of the uncertainty.
+"Too far apart" means two tests:
 
 - **The gate.** The Mahalanobis distance must be below a limit. With the default, a true match passes with a probability of 0.99.
 - **The coincidence test.** The match must be more likely than finding another object at this place by chance.
@@ -106,8 +109,8 @@ Three distances can be chosen (`AssociationConfig.distance`, option `--distance`
 
 | Distance | Order of the pairs | Too far apart |
 | --- | --- | --- |
-| `mahalanobis` (default) | Mahalanobis distance | gate, and coincidence test |
-| `likelihood` | Mahalanobis distance plus a term that grows with the size of the uncertainty | gate, and coincidence test |
+| `likelihood` (default) | Mahalanobis distance plus a term that grows with the size of the uncertainty | gate, and coincidence test |
+| `mahalanobis` | Mahalanobis distance | gate, and coincidence test |
 | `euclidean` | distance in metres, as in the conference paper | more than `euclidean_limit` (2 m) |
 
 The `likelihood` distance is the negative logarithm of the likelihood of the pair. The same authors replace the Euclidean
@@ -124,8 +127,8 @@ Old CPM objects kept in memory (the default, `hold` = none):
 | Method | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
 | --- | --- | --- | --- |
 | greedy, Mahalanobis, gate only | 1,837,477 of 2,898,938 | 76.0% | 73.4% |
-| greedy, Mahalanobis, gate and coincidence test (default) | 0 of 404,427 | 95.1% | 92.7% |
-| greedy, likelihood, gate and coincidence test | 0 of 407,827 | 99.3% | 95.8% |
+| greedy, Mahalanobis, gate and coincidence test | 0 of 404,427 | 95.1% | 92.7% |
+| greedy, likelihood, gate and coincidence test (default) | 0 of 407,827 | 99.3% | 95.8% |
 | greedy, Euclidean, 2 m | 12,641 of 518,009 | 98.0% | 93.7% |
 | sensorwise | 0 of 402,093 | 98.6% | 95.1% |
 
@@ -134,8 +137,8 @@ CPM objects older than 1 s forgotten (`--hold 1.0`):
 | Method | Wrong matches | Fresh pairs found | Pairs up to 1 s found |
 | --- | --- | --- | --- |
 | greedy, Mahalanobis, gate only | 0 of 314,077 | 98.6% | 96.2% |
-| greedy, Mahalanobis, gate and coincidence test (default) | 0 of 311,658 | 98.4% | 95.5% |
-| greedy, likelihood, gate and coincidence test | 0 of 312,267 | 99.2% | 95.7% |
+| greedy, Mahalanobis, gate and coincidence test | 0 of 311,658 | 98.4% | 95.5% |
+| greedy, likelihood, gate and coincidence test (default) | 0 of 312,267 | 99.2% | 95.7% |
 | greedy, Euclidean, 2 m | 0 of 310,607 | 99.1% | 95.2% |
 | sensorwise | 0 of 310,242 | 98.6% | 95.1% |
 
@@ -153,8 +156,8 @@ What the numbers say:
   With the `likelihood` distance the fresh one joins first. This is the difference between 95.1% and 99.3%.
 - With a short memory (`hold` of 1 s) the three distances are close to each other.
 
-My advice: keep the greedy algorithm, and use the `likelihood` distance. It is still the Mahalanobis distance,
-with one more term for the size of the uncertainty.
+Decision of 2026-10-13: the greedy algorithm with the `likelihood` distance is the default. It is still the
+Mahalanobis distance, with one more term for the size of the uncertainty.
 
 ### The other method
 
@@ -179,7 +182,7 @@ a fusion variant can be run with the perfect association to separate the effect 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `method` | "greedy" | "greedy": the adapted greedy algorithm of the paper. "sensorwise": the other method |
-| `distance` | "mahalanobis" | "mahalanobis", "likelihood" or "euclidean" (greedy method) |
+| `distance` | "likelihood" | "likelihood", "mahalanobis" or "euclidean" (greedy method) |
 | `gate_probability` | 0.99 | a true match passes the gate with this probability |
 | `coincidence_test` | True | a match must also be more likely than a chance meeting |
 | `euclidean_limit` | 2.0 | largest distance in m of a match with the Euclidean distance |
@@ -197,8 +200,8 @@ with the wrong vehicle (measured with the sensorwise method: 1374 wrong matches 
 ## What the checks say
 
 The command `aoc-associate` passes when at least 99% of the matches are right, 95% of the fresh pairs are found,
-and 90% of the pairs up to 1 s are found. With the default settings and old objects kept in memory, the second number
-is at the limit (95.1%). With `--distance likelihood` or `--hold 1.0` it is well above.
+and 90% of the pairs up to 1 s are found. With the default settings the three numbers are 100%, 99.3% and 95.8% on the AoC run.
+With `--distance mahalanobis` and old objects kept in memory, the second number is at the limit (95.1%).
 
 Most of the missed fresh pairs have a member older than 0.3 s. The motion model does not cover a sustained acceleration,
 and this is where it shows.
