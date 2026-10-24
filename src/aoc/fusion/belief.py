@@ -29,6 +29,14 @@ Weakening a mass function when its source is not fully reliable (task B5)
   contextual_discount  contextual discounting (Mercier, Quost and Denoeux): one reliability per context,
                        where a context is a set of answers ("how reliable is the source when the truth is in this set?")
   disjunctive          the disjunctive rule. Both discountings are a disjunctive combination with a small mass function.
+
+Combining the mass functions of several sources about one object (task B6)
+  conjunctive          the conjunctive rule of the Transferable Belief Model: Dempster's rule without the
+                       normalisation. The conflict stays as the mass of the empty set. For sources that are distinct.
+  dempster             Dempster's rule: the conjunctive rule, then the conflict is removed and the rest rescaled.
+  cautious             the cautious rule of Denoeux (2008), for sources that may share their information.
+                       Combining a mass function with itself gives it back: shared information cannot be counted twice.
+  commonality, weights, from_weights   the functions behind the cautious rule.
 """
 from __future__ import annotations
 
@@ -286,3 +294,139 @@ def contextual_discount(frame: Frame, masses, contexts, reliability) -> np.ndarr
     """
     table = _table(frame, masses)
     return disjunctive(frame, table, discount_kernel(frame, contexts, reliability, len(table)))
+
+
+# ----------------------------------------------------------------------------
+# Combination (task B6)
+# ----------------------------------------------------------------------------
+def _pair(frame: Frame, first, second) -> tuple[np.ndarray, np.ndarray]:
+    """Two tables with the same number of rows. A table of one row is repeated to match the other."""
+    a, b = _table(frame, first), _table(frame, second)
+    if len(a) != len(b):
+        if len(a) == 1:
+            a = np.repeat(a, len(b), axis=0)
+        elif len(b) == 1:
+            b = np.repeat(b, len(a), axis=0)
+        else:
+            raise ValueError("the two tables need the same number of rows (or one of them a single row)")
+    return a, b
+
+
+def conjunctive(frame: Frame, first, second) -> np.ndarray:
+    """The conjunctive rule, row by row: each product m1(B) m2(C) goes to the intersection of B and C.
+
+    It is Dempster's rule without the normalisation: the products that fall on the empty set stay there,
+    as the conflict between the two sources. It is for two sources that are distinct (they do not share their
+    information). One of the two tables can hold a single row: it is then used for every row of the other.
+    """
+    a, b = _pair(frame, first, second)
+    out = np.zeros_like(a)
+    for left in range(frame.n_sets):
+        if not a[:, left].any():
+            continue
+        for right in range(frame.n_sets):
+            if b[:, right].any():
+                out[:, left & right] += a[:, left] * b[:, right]
+    return out
+
+
+def normalize(frame: Frame, masses) -> np.ndarray:
+    """Removes the mass of the empty set and rescales the rest to a total of 1 (the closed-world reading).
+
+    A row with all its mass on the empty set cannot be rescaled: it is returned as it is.
+    """
+    table = _table(frame, masses).copy()
+    kept = table[:, 1:].sum(axis=1)
+    can = kept > 0.0
+    table[can, 0] = 0.0
+    table[can] /= kept[can, None]
+    return table
+
+
+def dempster(frame: Frame, first, second) -> np.ndarray:
+    """Dempster's rule, row by row: the conjunctive rule, then the conflict is removed and the rest rescaled."""
+    return normalize(frame, conjunctive(frame, first, second))
+
+
+def commonality(frame: Frame, masses) -> np.ndarray:
+    """The commonality of each set, for each row: the masses of the sets that contain it (itself included)."""
+    table = _table(frame, masses)
+    sets = np.arange(frame.n_sets)
+    contains = (sets[:, None] & sets[None, :]) == sets[None, :]           # contains[b, a]: set b contains set a
+    return table @ contains.astype(float)
+
+
+def _mobius_sign(frame: Frame) -> np.ndarray:
+    """sign[a, b] = (-1)^(|b| - |a|) when set b contains set a, else 0."""
+    sets = np.arange(frame.n_sets)
+    contains = (sets[:, None] & sets[None, :]) == sets[:, None]           # contains[a, b]: b contains a
+    return np.where(contains, (-1.0) ** (frame.sizes[None, :] - frame.sizes[:, None]), 0.0)
+
+
+def weights(frame: Frame, masses) -> np.ndarray:
+    """The conjunctive weights of each row (Smets 1995, Denoeux 2008), one column per set except the whole frame.
+
+    A mass function is the conjunctive combination of one generalized simple mass function per set A, with
+    1 - w(A) on A and w(A) on the whole frame. The weights are the w(A). A weight below 1 is support for A.
+    A weight above 1 is the opposite: 1 - w(A) is then negative, and the piece is not a mass function on its
+    own (that is why it is called generalized). The last column (the whole frame) is 1 and is kept so that the
+    columns line up with the sets. The mass functions must not be dogmatic: some mass on the whole frame is needed.
+    """
+    table = _table(frame, masses)
+    if (table[:, frame.omega] <= 0.0).any():
+        raise ValueError("the weights need mass functions with some mass on the whole frame (not dogmatic)")
+    if (table < -1e-9).any():
+        raise ValueError("the weights need mass functions without negative masses")
+    q = commonality(frame, table)
+    log_q = np.log(q)                                                     # q >= m(whole frame) > 0 for every set
+    # ln w(A) = sum over the sets B that contain A of (-1)^(|B| - |A| + 1) ln q(B)
+    log_w = -(log_q @ _mobius_sign(frame).T)
+    log_w[:, frame.omega] = 0.0
+    return np.exp(log_w)
+
+
+def from_weights(frame: Frame, w) -> np.ndarray:
+    """The mass function of each row of conjunctive weights (the inverse of ``weights``).
+
+    The last column (the whole frame) must be 1, as ``weights`` gives it.
+    """
+    w = np.asarray(w, dtype=float)
+    if w.ndim == 1:
+        w = w[None, :]
+    if w.ndim != 2 or w.shape[1] != frame.n_sets or not (w > 0.0).all():
+        raise ValueError("a table of weights needs %d positive columns" % frame.n_sets)
+    if not np.allclose(w[:, frame.omega], 1.0):
+        raise ValueError("the weight of the whole frame must be 1")
+    sets = np.arange(frame.n_sets)
+    # q(C) = product over the sets B (other than the whole frame) that do not contain C of w(B)
+    not_contains = ((sets[:, None] & sets[None, :]) != sets[None, :]).astype(float)       # [b, c]: b does not contain c
+    not_contains[frame.omega, :] = 0.0
+    log_q = np.log(w) @ not_contains
+    # m(A) = sum over the sets B that contain A of (-1)^(|B| - |A|) q(B)
+    return np.exp(log_q) @ _mobius_sign(frame).T
+
+
+def cautious(frame: Frame, first, second) -> np.ndarray:
+    """The cautious rule of Denoeux (2008), row by row: the weights of the two mass functions are combined by the minimum.
+
+    It is for two sources that may share their information. The combination of a mass function with itself
+    gives it back, so a piece of information that reaches the vehicle twice counts once. For two simple
+    mass functions on the same set, the result keeps the larger support. The mass functions must not be dogmatic.
+    The conflict stays as the mass of the empty set; ``normalize`` removes it.
+    """
+    a, b = _pair(frame, first, second)
+    return from_weights(frame, np.minimum(weights(frame, a), weights(frame, b)))
+
+
+def combine(frame: Frame, tables, rule=conjunctive) -> np.ndarray:
+    """Combines several tables of mass functions, row by row, with a rule (``conjunctive``, ``dempster`` or ``cautious``).
+
+    With no table the result is "I do not know" for one row. With one table the result is this table.
+    """
+    tables = list(tables)
+    if not tables:
+        return vacuous(frame, 1)
+    out = _table(frame, tables[0])
+    for table in tables[1:]:
+        out = rule(frame, out, table)
+    return out

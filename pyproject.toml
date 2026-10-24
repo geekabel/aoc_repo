@@ -26,6 +26,7 @@ aoc-replay = "aoc.fusion.replay:main"
 aoc-associate = "aoc.fusion.association:main"
 aoc-evidence = "aoc.fusion.bba:main"
 aoc-discount = "aoc.fusion.discounting:main"
+aoc-combine = "aoc.fusion.combination:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

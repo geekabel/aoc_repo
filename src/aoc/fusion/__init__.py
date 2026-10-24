@@ -12,8 +12,9 @@ Written:
   bba          the existence and class evidence of each reported object (B4, command ``aoc-evidence``)
   discounting  the reliability alpha of each object from its age, and the discount of its existence evidence,
                with the two baselines full trust and hard cutoff (B5, command ``aoc-discount``)
+  combination  one piece of evidence per real object: the conjunctive rule for the on-board sensors, the cautious
+               rule of Denoeux for the received objects (B6, command ``aoc-combine``). The rules are in ``belief``.
 
-Planned (tasks B6 and B7 of the Plan):
-  combination  Dempster and cautious rules (B6)
+Planned (task B7 of the Plan):
   kinematics   fusion of position and speed by covariance intersection (B7)
 """

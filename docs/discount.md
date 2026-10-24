@@ -243,16 +243,18 @@ is on the safe side. With the fitted value it is right on average, and it is som
 - On the objects that the cutoff keeps, the calibration errors are: cutoff 0.020, discount with the assumed
   value 0.061, discount with the fitted value 0.004.
 
-## Choices that are not made
+## Decisions of Oct 24, 2026
 
-They are choices of the plan. The code takes no side: the default is the assumed value and no memory limit.
+The four choices below were put to Godwin after the measures above. He said yes to all four, and the Plan holds them.
 
-1. **The motion value of the curve.** Keep the assumed value (safe, too careful, H1 fails against the cutoff),
-   or fit it on calibration runs kept apart from the runs of the evaluation.
-2. **The memory limit of the evaluation.** How long a receiver keeps an object without news. It must be the
-   same for the three laws, and it must be written in the papers.
-3. **The measure of H1.** The calibration error alone, or the calibration error and the Brier score.
-4. **Where H1 is expected to hold.** When the network keeps every object fresh, a discount has little to win.
+1. **The motion value of the curve** is fitted on calibration runs, kept apart from the runs of the evaluation.
+   The alignment and the association keep the assumed value. Until the calibration runs exist (phase C), the code
+   keeps the assumed value by default: a value fitted on the run it is measured on is too kind to it.
+2. **The memory limit of the evaluation** is 5 s for every baseline, with 2 s and 10 s as a check (`--hold`).
+   The code keeps no limit by default, so that the check of a run stays comparable with the earlier numbers.
+3. **The measure of H1** is the calibration error, with the Brier score reported next to it.
+4. **H1 must hold** where objects get old (low rate, loss, low penetration). Where every object is fresh,
+   the discount must not be worse than full trust.
 
 ## What the tests check
 
