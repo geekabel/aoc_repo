@@ -14,7 +14,7 @@ Written:
                with the two baselines full trust and hard cutoff (B5, command ``aoc-discount``)
   combination  one piece of evidence per real object: the conjunctive rule for the on-board sensors, the cautious
                rule of Denoeux for the received objects (B6, command ``aoc-combine``). The rules are in ``belief``.
+  kinematics   one place and one speed per real object, by covariance intersection (B7, command ``aoc-kinematics``)
 
-Planned (task B7 of the Plan):
-  kinematics   fusion of position and speed by covariance intersection (B7)
+The evidential layer (bba, discounting, combination) and the kinematic layer (kinematics) stay separate.
 """

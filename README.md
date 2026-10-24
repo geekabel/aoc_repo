@@ -12,14 +12,14 @@ This repository holds what the tasks produce.
 | --- | --- | --- |
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table | A8 |
-| `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age, combination. The kinematic fusion comes next | B2 to B6 (done), B7 |
+| `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7 |
 | `src/aoc/analysis/` | Calibration error, real motion of the objects. The other metrics and the aggregation come later | B5, B8, D4 |
 | `artery-ext/` | Logger for Artery, config files, scripts for the workstation | A6, A7, A8 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers. Empty for now | D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data` | B1 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, notes about Artery, issue draft | A8, B2 to B6 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, notes about Artery, issue draft | A8, B2 to B7 |
 
 ## Quick start
 
@@ -48,6 +48,7 @@ Other commands:
 | `aoc-evidence RUN_FOLDER` | Builds the existence and class evidence of every object of a run and checks it |
 | `aoc-discount RUN_FOLDER` | Lowers the existence evidence of every object by its age, checks it, and compares full trust, a hard cutoff and the discount |
 | `aoc-combine RUN_FOLDER` | Runs the whole evidential chain and fuses the evidence of each real object; compares the four ways of the plan (about 2 minutes) |
+| `aoc-kinematics RUN_FOLDER` | Fuses the places and the speeds of each real object by covariance intersection; compares it with the Kalman way (6 to 10 minutes) |
 
 ## Typical uses
 
@@ -120,6 +121,15 @@ Fuse the evidence of each real object (details in `docs/combination.md`):
 from aoc.fusion.combination import fuse
 
 fused = fuse(aligned.objects, groups, trusted)           # one row per real object, with bel_exists and pl_exists
+```
+
+Fuse the places and the speeds of each real object (details in `docs/kinematics.md`):
+
+```python
+from aoc.fusion.kinematics import fuse_states, with_states
+
+states = fuse_states(aligned, groups)                    # covariance intersection: one state and one covariance per real object
+table = with_states(fused.objects, states)              # the two layers side by side
 ```
 
 Run a simulation on the workstation: see `artery-ext/README.md`.
