@@ -28,9 +28,10 @@ def table(**columns):
 # ----------------------------------------------------------------------------
 def test_existence_mass_of_a_reported_object():
     evidence = build_evidence(table(meas_src=["radar", "cam_msg"]))
-    assert len(evidence) == 2 and evidence.exist_score.tolist() == [0.9, 0.9]
-    assert np.allclose(evidence.existence, [[0.0, 0.9, 0.0, 0.1]] * 2)             # columns: empty, {E}, {notE}, {E, notE}
-    assert belief.belief(EXISTENCE, evidence.existence, "E").tolist() == pytest.approx([0.9, 0.9])
+    assert len(evidence) == 2 and evidence.exist_score.tolist() == [0.99, 0.99]
+    assert np.allclose(evidence.existence, [[0.0, 0.99, 0.0, 0.01]] * 2)           # columns: empty, {E}, {notE}, {E, notE}
+    assert belief.belief(EXISTENCE, evidence.existence, "E").tolist() == pytest.approx([0.99, 0.99])
+    assert belief.pignistic(EXISTENCE, evidence.existence)[0] == pytest.approx([0.995, 0.005])
     assert belief.plausibility(EXISTENCE, evidence.existence, "E").tolist() == pytest.approx([1.0, 1.0])
     assert (evidence.existence[:, EXISTENCE.index("notE")] == 0.0).all()           # a report never speaks against the object
 
@@ -45,8 +46,8 @@ def test_score_by_origin_of_the_measurement():
 def test_score_given_by_the_source_wins():
     objects = table(meas_src=["radar", "radar", "radar"], exist_score=[0.4, np.nan, 1.0])
     evidence = build_evidence(objects)
-    assert evidence.exist_score.tolist() == [0.4, 0.9, 1.0]
-    assert np.allclose(evidence.existence, [[0, 0.4, 0, 0.6], [0, 0.9, 0, 0.1], [0, 1.0, 0, 0.0]])
+    assert evidence.exist_score.tolist() == [0.4, 0.99, 1.0]
+    assert np.allclose(evidence.existence, [[0, 0.4, 0, 0.6], [0, 0.99, 0, 0.01], [0, 1.0, 0, 0.0]])
     with pytest.raises(ValueError, match="outside 0 to 1"):
         build_evidence(table(meas_src=["radar"], exist_score=[1.3]))
 
@@ -108,7 +109,7 @@ def test_evidence_of_every_object_of_a_tick(run):
 
 def test_check_of_the_sample_run_passes(run, exported_runs, capsys):
     result = check_run(run)
-    assert result["result"] == "PASS" and result["invalid"] == 0 and result["mean_score"] == 0.9
+    assert result["result"] == "PASS" and result["invalid"] == 0 and result["mean_score"] == 0.99
     assert result["by_origin"] == {"radar": result["objects"]} and result["by_class"] == {"car": result["objects"]}
     folder, _ = exported_runs["run_aoc_sensors"]
     assert bba.main([str(folder)]) == 0
