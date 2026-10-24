@@ -11,7 +11,7 @@ aoc-evaluate RUN_FOLDER                       # the folder with observations.par
 aoc-evaluate RUN_FOLDER --out rows.parquet    # also writes the five rows (.parquet, .csv or .json)
 ```
 
-It takes 4 to 8 minutes for a run of 60 s with 20 vehicles, depending on the machine.
+It takes 4 to 11 minutes for a run of 60 s with 20 vehicles, depending on the machine and on the number of reports.
 
 | Option | What it does |
 | --- | --- |
