@@ -48,7 +48,7 @@ Other commands:
 | `aoc-evidence RUN_FOLDER` | Builds the existence and class evidence of every object of a run and checks it |
 | `aoc-discount RUN_FOLDER` | Lowers the existence evidence of every object by its age, checks it, and compares full trust, a hard cutoff and the discount |
 | `aoc-combine RUN_FOLDER` | Runs the whole evidential chain and fuses the evidence of each real object; compares the four ways of the plan (about 2 minutes) |
-| `aoc-kinematics RUN_FOLDER` | Fuses the places and the speeds of each real object by covariance intersection; compares it with the Kalman way (2 to 7 minutes) |
+| `aoc-kinematics RUN_FOLDER` | Fuses the places and the speeds of each real object by covariance intersection; compares it with the Kalman way (6 to 10 minutes) |
 
 ## Typical uses
 

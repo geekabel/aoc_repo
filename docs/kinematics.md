@@ -16,7 +16,7 @@ aoc-kinematics RUN_FOLDER          # the folder with observations.parquet and tr
 
 The command aligns and associates every tick, fuses the states of every group with five methods, and measures
 them against the truth. Only the groups of two members or more are measured: the others are the same for every
-method. It takes 2 to 7 minutes for a run of 60 s, depending on the machine and on the number of members per group.
+method. It takes 6 to 10 minutes for a run of 60 s with 20 vehicles, depending on the machine and on the memory limit.
 
 | Option | What it does |
 | --- | --- |

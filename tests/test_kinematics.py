@@ -312,6 +312,18 @@ def test_check_of_odd_runs(run, monkeypatch, exported_runs, capsys):
     monkeypatch.setattr(kinematics, "covariance_intersection", too_sure)
     c = check_run(run)
     assert c["result"] == "FAIL" and any("more sure than its members" in p for p in c["problems"])
+    assert not any("larger" in p for p in c["problems"])                                                    # a smaller covariance keeps the promise
+    monkeypatch.undo()
+
+    def too_careful(xa, pa, xb, pb):                                                                           # a "Kalman way" that inflates the covariance
+        x, p = kinematics.covariance_intersection(xa, pa, xb, pb)
+        return x, p * 4.0
+
+    monkeypatch.setattr(kinematics, "independent_fusion", too_careful)
+    c = check_run(run)
+    assert c["result"] == "FAIL"
+    assert any(p.startswith("independent: ") and "larger determinant than the smallest member" in p for p in c["problems"])
+    assert not any(p.startswith("ci") for p in c["problems"])
     folder, _ = exported_runs["run_aoc_sensors"]
     assert kinematics.main([str(folder)]) == 3
     assert "result:              FAIL (" in capsys.readouterr().out
