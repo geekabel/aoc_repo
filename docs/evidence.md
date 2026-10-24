@@ -4,8 +4,8 @@ Task B4. Each object that a source reports is turned into evidence: how much it 
 and how much it supports each class. The evidence is written as mass functions (belief function theory).
 Two modules do it: `aoc.fusion.belief` and `aoc.fusion.bba`.
 
-This is step 3 of the pipeline of the plan. The next steps lower the evidence for the age of the object (B5)
-and combine the evidence of the objects of one group (B6).
+This is step 3 of the pipeline of the plan. The next steps lower the evidence for the age of the object
+(B5, `docs/discount.md`) and combine the evidence of the objects of one group (B6).
 
 ## Check a run
 
@@ -123,6 +123,8 @@ This decides how the confidence must be read:
 
 Measured on the run of 60 s with the AoC sensors (one source at a time, before any combination).
 "Really there" means that the true object is within 1.5 m of the place where the report puts it now.
+The receiver keeps every received object until the end of the run, however old. With a memory limit the shares
+change (see `docs/discount.md`), and the conclusion stays: the pignistic probability cannot go below 0.5.
 
 | Age of the object | Really there | Reliability alpha of the theory (car) |
 | --- | --- | --- |
@@ -153,7 +155,8 @@ Our scenarios have none.
 **The sender confidence of a CPM is not used here.** It is used in the discounting (B5), as the plan says.
 
 One more thing the table shows: between 0.6 and 1 s the theory is too careful for cars (0.71 against 91%).
-The assumed motion value of a car looks too high. This is for tasks C2 to C4.
+The cause is not the size of the assumed motion value. It is the shape of the error: most cars go straight,
+a few turn, and the curve assumes a Gaussian error. The analysis and the options are in `docs/discount.md`.
 
 ## What the checks say
 

@@ -23,6 +23,12 @@ The three usual readings of a mass function
 
 The empty set is kept (the open-world reading of the Transferable Belief Model): after a combination,
 its mass is the conflict between the sources. The pignistic probability leaves it out and rescales.
+
+Weakening a mass function when its source is not fully reliable (task B5)
+  discount             classical discounting (Shafer): one reliability for the source
+  contextual_discount  contextual discounting (Mercier, Quost and Denoeux): one reliability per context,
+                       where a context is a set of answers ("how reliable is the source when the truth is in this set?")
+  disjunctive          the disjunctive rule. Both discountings are a disjunctive combination with a small mass function.
 """
 from __future__ import annotations
 
@@ -168,3 +174,115 @@ def pignistic(frame: Frame, masses) -> np.ndarray:
     kept = 1.0 - table[:, 0]
     with np.errstate(divide="ignore", invalid="ignore"):
         return (table @ share) / np.where(kept > 0.0, kept, np.nan)[:, None]
+
+
+# ----------------------------------------------------------------------------
+# Discounting (task B5)
+# ----------------------------------------------------------------------------
+def _per_row(values, n: int, what: str) -> np.ndarray:
+    """One number between 0 and 1 per row. A single number is used for every row."""
+    values = np.asarray(values, dtype=float)
+    if values.ndim == 0:
+        values = np.full(n, float(values))
+    if values.shape != (n,):
+        raise ValueError("%s: one number is needed, or one per mass function (%d)" % (what, n))
+    if not np.isfinite(values).all() or (values < 0.0).any() or (values > 1.0).any():
+        raise ValueError("%s must be numbers between 0 and 1" % what)
+    return values
+
+
+def disjunctive(frame: Frame, first, second) -> np.ndarray:
+    """The disjunctive rule, row by row: each product m1(B) m2(C) goes to the union of B and C.
+
+    It is the rule for two sources of which at least one is reliable, without knowing which one.
+    One of the two tables can hold a single row: it is then used for every row of the other.
+    """
+    a, b = _table(frame, first), _table(frame, second)
+    if len(a) != len(b):
+        if len(a) == 1:
+            a = np.repeat(a, len(b), axis=0)
+        elif len(b) == 1:
+            b = np.repeat(b, len(a), axis=0)
+        else:
+            raise ValueError("the two tables need the same number of rows (or one of them a single row)")
+    out = np.zeros_like(a)
+    for left in range(frame.n_sets):
+        if not a[:, left].any():
+            continue
+        for right in range(frame.n_sets):
+            if b[:, right].any():
+                out[:, left | right] += a[:, left] * b[:, right]
+    return out
+
+
+def discount(frame: Frame, masses, reliability) -> np.ndarray:
+    """Classical discounting (Shafer 1976), row by row.
+
+    ``reliability`` is the degree of belief that the source is reliable: 1 keeps the mass function,
+    0 gives "I do not know". Each mass keeps the share ``reliability``. The rest goes to the whole frame.
+    (The books often write the discount RATE, which is 1 - reliability.)
+    One number is used for every row. A list gives one number per row.
+    """
+    table = _table(frame, masses)
+    r = _per_row(reliability, len(table), "the reliabilities")
+    out = table * r[:, None]
+    out[:, frame.omega] += (1.0 - r) * table.sum(axis=1)             # the total of a mass function is 1
+    return out
+
+
+def discount_kernel(frame: Frame, contexts, reliability, n: int = 1) -> np.ndarray:
+    """The mass function that carries a contextual discounting: discounting is the disjunctive rule with it.
+
+    Take any group G of contexts. Its weight is the product of the reliabilities of the contexts of G
+    and of (1 - reliability) of the other contexts. This weight goes to the set of the answers that are
+    in no context of G. Returns ``n`` rows (the reliabilities can differ from row to row).
+    """
+    try:
+        numbers = [frame.index(context) for context in contexts]
+    except TypeError:
+        raise ValueError("the contexts must be sets of answers of the frame %s" % frame.name) from None
+    if not numbers or 0 in numbers or len(set(numbers)) != len(numbers):
+        raise ValueError("the contexts must be different sets of answers, none of them empty, and at least one is needed")
+    if len(numbers) > 12:
+        raise ValueError("at most 12 contexts")
+    r = np.asarray(reliability, dtype=float)
+    if r.ndim == 0:
+        r = np.full(len(numbers), float(r))
+    if r.ndim == 1:
+        r = np.repeat(r[None, :], n, axis=0) if len(r) == len(numbers) else r
+    if r.shape != (n, len(numbers)):
+        raise ValueError("one reliability per context is needed (%d), or a table with one row per mass function" % len(numbers))
+    if not np.isfinite(r).all() or (r < 0.0).any() or (r > 1.0).any():
+        raise ValueError("the reliabilities must be numbers between 0 and 1")
+    kernel = np.zeros((n, frame.n_sets))
+    for group in range(1 << len(numbers)):
+        weight = np.ones(n)
+        covered = 0
+        for position, number in enumerate(numbers):
+            if group >> position & 1:
+                weight = weight * r[:, position]
+                covered |= number
+            else:
+                weight = weight * (1.0 - r[:, position])
+        kernel[:, frame.omega & ~covered] += weight
+    return kernel
+
+
+def contextual_discount(frame: Frame, masses, contexts, reliability) -> np.ndarray:
+    """Contextual discounting, row by row.
+
+    ``contexts`` is a list of sets of answers, for example ``["E", "notE"]`` or ``[("car", "truck"), "pedestrian"]``.
+    The reliability of a context is the degree of belief that the source is reliable when the true answer
+    is in this set.
+
+    ``reliability`` holds one number per context (a list is always read this way). To give other numbers
+    to each mass function, pass a table with one row per mass function and one column per context.
+
+    With the contexts {answer 1}, {answer 2}, ... it is the contextual discounting of Mercier, Quost and
+    Denoeux (Information Fusion, 2008). With a partition of the frame it is their discounting on a coarsening.
+    With the single context "whole frame" (``[frame.elements]``) it is the classical discounting.
+    For contexts that overlap, the result is the one of the corrigendum of Mercier, Pichon and Lefevre (IJAR, 2016).
+    An answer that is in no context counts as a context with reliability 0.
+    """
+    table = _table(frame, masses)
+    return disjunctive(frame, table, discount_kernel(frame, contexts, reliability, len(table)))
