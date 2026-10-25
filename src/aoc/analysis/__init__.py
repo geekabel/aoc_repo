@@ -8,6 +8,7 @@ Written:
   link         the single-link runs: read the grid of exported runs and check each one against its period and its loss
                (C1, command ``aoc-link``)
   ages         the age at the receiver of the single-link runs against the law of the note, figure F3 (C2, command ``aoc-ages``)
+  ealpha       E[alpha] measured on the single-link runs against the three forms of the note, figure F4 (C3, command ``aoc-ealpha``)
 
 Planned: the results database over the runs (task D4).
 """

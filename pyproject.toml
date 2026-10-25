@@ -32,6 +32,7 @@ aoc-evaluate = "aoc.analysis.metrics:main"
 aoc-synthetic = "aoc.io.synthetic:main"
 aoc-link = "aoc.analysis.link:main"
 aoc-ages = "aoc.analysis.ages:main"
+aoc-ealpha = "aoc.analysis.ealpha:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
