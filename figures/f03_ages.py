@@ -21,7 +21,10 @@ def main(argv=None) -> int:
     from aoc.analysis import ages
     out = os.path.join(HERE, "f03_ages.pdf")
     code = ages.main([root, "--out", out, "--table", os.path.join(HERE, "f03_ages.csv")])
-    print("written: %s" % out)
+    if os.path.isfile(out):
+        print("written: %s" % out)
+    else:
+        print("f03_ages: no figure written (matplotlib missing, or no run with a curve)")
     return 0 if code in (0, 3) else code
 
 
