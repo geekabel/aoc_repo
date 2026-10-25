@@ -9,6 +9,14 @@ from aoc.io.synthetic import Car, Scenario, write_run
 from aoc.theory.averages import mean_age_periodic
 
 
+def has_matplotlib() -> bool:
+    try:
+        import matplotlib  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def link_scenario(period, loss, seed=0, duration=330.0):
     cars = (Car("object", x=300.0, vx=10.0), Car("sender", x=260.0, vx=10.0), Car("receiver", x=80.0, vx=10.0))
     return Scenario(cars, duration=duration, sensor_range=65.0, cpm_period=period, delay=0.02, loss=loss, seed=seed,
@@ -70,7 +78,11 @@ def test_grid_and_command(tmp_path, capsys):
     figure = tmp_path / "f3.png"
     assert ages.main([str(tmp_path), "--out", str(figure), "--table", str(tmp_path / "ages.csv"), "--draws", "100"]) == 0
     text = capsys.readouterr().out
-    assert text.startswith("C2 AGE CHECK") and "result:              PASS" in text and figure.stat().st_size > 1000
+    assert text.startswith("C2 AGE CHECK") and "result:              PASS" in text
+    if has_matplotlib():
+        assert figure.stat().st_size > 1000 and "figure:" in text
+    else:
+        assert not figure.exists() and "figure:" not in text
     assert len(pd.read_csv(tmp_path / "ages.csv")) == 4
     assert ages.main([str(tmp_path / "nothing")]) == 2
     empty = tmp_path / "empty"
@@ -93,5 +105,8 @@ def test_figure_script(tmp_path):
     runs = tmp_path / "runs"
     write_run(link_scenario(0.5, 0.1, duration=100.0), runs / "aoc-link-0" / "parquet")
     done = subprocess.run([sys.executable, str(script), str(runs)], capture_output=True, text=True, env=env)
-    assert done.returncode == 0 and "written:" in done.stdout, done.stdout + done.stderr
-    assert (tmp_path / "f03_ages.pdf").stat().st_size > 1000 and (tmp_path / "f03_ages.csv").exists()
+    assert done.returncode == 0 and (tmp_path / "f03_ages.csv").exists(), done.stdout + done.stderr
+    if has_matplotlib():
+        assert "written:" in done.stdout and (tmp_path / "f03_ages.pdf").stat().st_size > 1000
+    else:
+        assert "no figure written" in done.stdout
