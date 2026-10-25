@@ -9,6 +9,10 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
+# figures of the papers drawn from results that are not in the repository (committed when frozen, task E5)
+figures/f*.pdf
+figures/f*.csv
+
 # results written by the theory modules when they are run by hand
 a2_results.json
 a3_results.json
