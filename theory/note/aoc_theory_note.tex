@@ -32,7 +32,7 @@
 \begin{document}
 
 \title{Age of Confidence: How Often Must a Shared Object Be Updated?%
-\thanks{Working note, version 2, October 12, 2026. The numerical values are
+\thanks{Working note, version 3, October 25, 2026. The numerical values are
 assumed. They are not yet fitted to real data.}}
 
 % TODO (Godwin): check the author line and the affiliation, add co-authors.
@@ -59,7 +59,9 @@ a target reliability? With assumed values and one update in ten lost, a moving
 car needs one update every 0.6~s and a parked vehicle one every 9~s for the
 same target. In the same conditions, regular updates need about half the rate
 of updates sent at random times. A model in which the reliability falls from
-the first instant asks for several times too many updates.
+the first instant asks for several times too many updates. A network
+simulation of one link, with the real messages and radio, confirms the age
+law and the formulas within 1.5\%.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -220,7 +222,7 @@ Losing one update does not make the next loss more or less likely.
 Symbol & Meaning \\
 \midrule
 $\Delta$ & age of the object: time since it was measured (s) \\
-$d$ & delay: age of the object when an update arrives (0.13~s) \\
+$d$ & delay: age of the object when an update arrives (0.13~s assumed; 1 to 92~ms in the simulation of Section~\ref{sec:check}) \\
 $T$, $\lambda$ & period between two updates (s) and update rate
 $\lambda=1/T$ (updates per second, Hz) \\
 $p$ & probability that an update is lost \\
@@ -732,6 +734,94 @@ channel is very busy. The formulas of Step~3 then give the confidence that
 remains.
 
 % ---------------------------------------------------------------------
+\section{Check in a Network Simulator}\label{sec:check}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figs/fig_check_ages.pdf}
+\caption{Share of time during which the age since the last reception is at
+most $a$, in the 16 runs of the network simulation. Lines: the law of
+Appendix~\ref{app:averages}. Dots: the runs. One panel per loss $p$, one
+colour per period $T$.}
+\label{fig:checkages}
+\end{figure*}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figs/fig_check_ealpha.pdf}
+\caption{Average reliability against the update rate (logarithmic scale) in
+the network simulation, for the pedestrian (left) and the moving car (right).
+Lines: the formula of Step~3 with the simple curve, at the median delay of
+the runs. Dots: the runs. The largest gap of a run to the formula is printed
+in each panel.}
+\label{fig:checkealpha}
+\end{figure*}
+
+The formulas of Step~3 rest on two things: the law of the age at the
+receiver, and the average of the reliability over that law. We checked both
+in a network simulation, with the real messages, the real radio and the
+real timing of the sender.
+
+\emph{Setup.} We used Artery~\cite{riebl2015}, which runs the ITS-G5 radio
+and the Collective Perception Service of ETSI on top of OMNeT++ and
+SUMO~\cite{lopez2018}. Three cars drive on a straight road at 10~m/s and
+keep their distances: the receiver, then 180~m ahead the sender, then 40~m
+ahead the object. The radars of the sender see the object; the radars of the
+receiver, which reach 150~m, see nothing. So the receiver knows the object
+only through the CPMs of the sender: one link, one object. The sender sends
+a CPM with the object every $T$ seconds. The receiver drops each CPM with
+probability $p$, independently of the others, which is the loss of our
+model. We ran the 16 cases with $T$ in $\{1, 0.5, 0.2, 0.1\}$~s and $p$ in
+$\{0, 0.1, 0.3, 0.5\}$, 330~s each, and we dropped the first 10~s. The CPMs
+of the object about the sender give a second link of the same kind in every
+run, so each run holds 334 to 6400 receptions. The period and the loss were
+checked on the logs: the period is exact and the loss is within 0.02 of $p$.
+
+\emph{Delay.} In the simulator, the radio takes less than one millisecond.
+The delay $d$ is the time between the last radar step of the sender, at
+10~Hz, and its CPM. It is between 1 and 92~ms depending on the run, with a
+median of 34~ms over the runs, and it varies by up to 0.1~s inside a run. This
+is below the 0.13~s of Table~\ref{tab:notation}, which includes the
+processing of real equipment. In this section the formulas take the median
+delay of each run.
+
+\emph{The age law.} Over a run, the share of time during which the age since
+the last reception is at most $a$ can be read exactly from the gaps between
+receptions: it is the sum over the gaps $g$ of $\min(g,a)$, divided by the
+length of the run. Fig.~\ref{fig:checkages} compares this share with the law
+of Appendix~\ref{app:averages}, $P(A\le a)=1-p^k+(1-p)p^k r/T$ with
+$a=kT+r$, for the 16 runs. The curves overlap. The largest distance between a
+measured curve and the law is 0.04, and the mean age is within the noise of a
+single run in every case: with $T=1$~s and $p=0.5$ a run holds only 334
+receptions, and its mean age differs from $T/2+Tp/(1-p)$ by 7\%, where runs
+drawn from the law itself differ by 6.5\% on average. Over the 16 runs the
+gaps of the mean average to $-0.2\%$. At 10~Hz the distance of 0.04 comes from
+the channel access: with three cars sending at 10~Hz, a CPM waits a few
+milliseconds for the channel, which is a few percent of $T$.
+
+\emph{The average reliability.} We then computed, on the same runs, the
+average over time of the reliability $\alpha(\Delta)$ of \Eq{eq:alpha},
+with the age of the object as the receiver saw it: the delay of each
+reception plus the time since that reception. Fig.~\ref{fig:checkealpha}
+shows it against the update rate for the pedestrian and the moving car, with
+the formula of Step~3 (\Eq{eq:regularloss} with the simple curve) as lines.
+For the five objects of Table~\ref{tab:params} and the 16 runs, the formula
+is within 1.5\% of the simulation. The largest gaps are 1.4\% for the
+pedestrian, 1.3\% for the bicycle, 1.5\% for the car, 1.1\% for the truck and
+1.3\% for the parked vehicle, whose reliability at age zero is 0.989 and not
+the 1 of the simple curve. The exact average of \Eq{eq:alpha} over the age
+law is within 2.4\% of the simulation, within the noise of one run. The
+exponential curve that falls from the first instant gives averages 3\% to
+25\% too low on the moving objects, as in Section~\ref{sec:step3}.
+
+\emph{What the check covers.} It covers the age law, the averaging and the
+delay of a real sender, with the loss of the model. It does not test the
+curve $\alpha(\Delta)$ itself: the cars drive straight, and the same curve is
+used on both sides. Fitting $q$ on recorded trajectories remains the next
+step. The loss is drawn at the receiver, so bursts of losses on a real
+channel are not covered either (Section~\ref{sec:limits}).
+
+% ---------------------------------------------------------------------
 \section{Limits of the Model}\label{sec:limits}
 
 \emph{Strong maneuvers.} Our random pushes are a fair model of small changes
@@ -745,8 +835,10 @@ channel, losses come in bursts. We expect bursts to make long gaps more
 likely, and so to lower the confidence.
 
 \emph{Delay and values.} We took the delay as constant. A delay that varies
-shortens the plateau by a random amount. Finally, all the numbers rest on
-Table~\ref{tab:params}. The formulas do not.
+shortens the plateau by a random amount. In the simulation of
+Section~\ref{sec:check} the delay varied by up to 0.1~s inside a run, and the
+formulas with the median delay still held within 1.5\%. Finally, all the
+numbers rest on Table~\ref{tab:params}. The formulas do not.
 
 % ---------------------------------------------------------------------
 \section{Conclusion}
@@ -759,9 +851,10 @@ reliability for a given update rate, and \Eq{eq:rule} the period that keeps
 the reliability above a target.
 
 The main lesson is that the right update rate depends on the object. A parked
-vehicle and a moving car do not need the same number of updates. The next
-steps are to fit the values to recorded trajectories, to check the formulas in
-a network simulation, and to use the reliability in a fusion based on belief
+vehicle and a moving car do not need the same number of updates. A network
+simulation of one link, with the real messages and radio, confirms the age
+law and the formulas within 1.5\%. The next steps are to fit the values to
+recorded trajectories and to use the reliability in a fusion based on belief
 functions.
 
 % ---------------------------------------------------------------------
@@ -933,6 +1026,14 @@ function over a symmetric convex set and some probability inequalities,''
 \bibitem{corless1996} R. M. Corless, G. H. Gonnet, D. E. G. Hare,
 D. J. Jeffrey, and D. E. Knuth, ``On the Lambert W function,'' \emph{Adv.
 Comput. Math.}, vol. 5, pp. 329--359, 1996.
+
+\bibitem{riebl2015} R. Riebl, H.-J. G\"unther, C. Facchi, and L. Wolf,
+``Artery: Extending Veins for VANET applications,'' in \emph{Proc. Int. Conf.
+Models Technol. Intell. Transp. Syst. (MT-ITS)}, 2015, pp. 450--456.
+
+\bibitem{lopez2018} P. A. Lopez \emph{et al.}, ``Microscopic traffic
+simulation using SUMO,'' in \emph{Proc. IEEE Int. Intell. Transp. Syst. Conf.
+(ITSC)}, 2018, pp. 2575--2582.
 
 \bibitem{ts102687} \emph{Intelligent Transport Systems (ITS); Decentralized
 Congestion Control Mechanisms for Intelligent Transport Systems Operating in
