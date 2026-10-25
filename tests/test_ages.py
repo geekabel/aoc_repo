@@ -37,8 +37,10 @@ def test_law_and_its_noise():
 
 def test_one_link_follows_the_law(tmp_path):
     write_run(link_scenario(0.5, 0.3), tmp_path / "aoc-link-0" / "parquet")
-    row = compare_run(tmp_path / "aoc-link-0" / "parquet", draws=100)
+    row = compare_run(tmp_path / "aoc-link-0" / "parquet", draws=200)
     assert row["T"] == 0.5 and row["p"] == 0.3 and row["links"] == 2 and row["receptions"] > 800
+    assert row["window_s"] == pytest.approx(2 * (330.0 - 10.0), abs=2.0)                                              # the two links pooled
+    assert 2 * 0.7 * 320 / 0.5 * 0.9 < row["receptions"] < 2 * 0.7 * 320 / 0.5 * 1.1
     assert row["mean_law"] == pytest.approx(mean_age_periodic(0.5, 0.3), abs=1e-4)
     assert abs(row["rel_gap"]) < 3 * row["rel_noise"] + 0.01 and row["ks"] < 0.05
     assert row["d0_median"] == pytest.approx(0.02, abs=1e-4) and row["d0_p95"] == pytest.approx(0.02, abs=1e-4)
@@ -50,6 +52,9 @@ def test_one_link_follows_the_law(tmp_path):
     liar["ks"] = round(float(np.max(np.abs(row["cdf"] - theory_cdf(GRID, 0.5, 0.0)))), 4)
     problems = check_ages(pd.DataFrame([liar]))
     assert any("mean age" in p for p in problems) and any("distribution functions differ" in p for p in problems)
+    # over several runs, a small systematic error that no single run shows is caught
+    biased = pd.DataFrame([dict(row, rel_gap=0.04, rel_noise=0.005, ks=0.01, ks_noise=0.02) for _ in range(6)])
+    assert any("systematic" in p for p in check_ages(biased)) and check_ages(biased.assign(rel_gap=[0.04, -0.04, 0.03, -0.03, 0.01, -0.01])) == []
 
 
 def test_grid_and_command(tmp_path, capsys):

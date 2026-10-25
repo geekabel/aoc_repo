@@ -30,14 +30,17 @@ scenario), pooled.
 ## The noise of one run
 
 A run of 330 s has few receptions when T = 1 s and p = 0.5 (about 165), and the mean age weighs the long gaps
-(g^2), so one run cannot show the law to 5%. The module draws 300 runs of the same window from the law itself
+(g^2), so one run cannot show the law to 5%. The module draws 1000 runs of the same window from the law itself
 (gaps of k periods, k geometric) and reports what they show: the standard deviation of their mean age, and the
 99th percentile of the distance between their distribution function and the law. A run passes when the relative
 gap of its mean age is within 5% or within three times that standard deviation, and when its Kolmogorov distance
 is within 0.05 or within that 99th percentile. On a long run the 5% of the plan decides; on a short one, the noise.
+Over four runs or more, the gaps must also average out: their mean must stay within 2% or three times its own
+noise. A small systematic error that no single run can show fails this last check.
 
-A plain bootstrap of the measured gaps was tried first and underestimates the noise by a third: a run with fewer
-long gaps than average resamples fewer long gaps. The noise under the law itself is the right reference.
+Note of the development: a plain bootstrap of the measured gaps was tried first and gave a noise about a third
+smaller than the spread seen over 20 seeds (3.1% against 5.0% at T = 1 s, p = 0.3): a run with fewer long gaps
+than average resamples fewer long gaps. The noise under the law itself matches the spread over seeds (4.5%).
 
 ## Run it
 
@@ -54,7 +57,7 @@ the noise, the Kolmogorov distance and its noise, d0 (median and 95th percentile
 | `--warmup S` | seconds left out at the start of each run (default 10) |
 | `--max-rel X` | largest relative gap of the mean age for a PASS (default 0.05) |
 | `--max-ks X` | largest Kolmogorov distance for a PASS (default 0.05) |
-| `--draws N` | runs drawn from the law to measure the noise (default 300) |
+| `--draws N` | runs drawn from the law to measure the noise (default 1000) |
 | `--out FILE`, `--table FILE` | figure F3 (.pdf or .png) and the table (.csv or .parquet) |
 
 ## On a synthetic grid

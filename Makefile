@@ -25,7 +25,7 @@ lint:
 
 check: lint test
 
-# The figures of the theory note, then one script per figure of the papers (figures/f*.py, none yet).
+# The figures of the theory note, then one script per figure of the papers (figures/f*.py).
 figures:
 	$(PYTHON) theory/note/code/a5_figures.py
 	@for script in $(wildcard figures/f*.py); do echo "$$script"; $(PYTHON) "$$script" || exit 1; done

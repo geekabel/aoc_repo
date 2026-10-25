@@ -89,7 +89,7 @@ def mean_age_from_gaps(t_rx: np.ndarray, t_end: float, t_start: float | None = N
     return mean_of_gaps(gaps_of_window(t_rx, t_end, t_start))
 
 
-def law_noise(period: float, loss: float, window: float, grid: np.ndarray = GRID, draws: int = 300, seed: int = 0) -> tuple[float, float]:
+def law_noise(period: float, loss: float, window: float, grid: np.ndarray = GRID, draws: int = 1000, seed: int = 0) -> tuple[float, float]:
     """How much the mean and the distribution function of a run of this length move under the law itself.
 
     Draws ``draws`` runs from the law (gaps of k periods, k geometric with success 1 - p) over a window of the
@@ -101,7 +101,8 @@ def law_noise(period: float, loss: float, window: float, grid: np.ndarray = GRID
         return float("nan"), float("nan")
     rng = np.random.default_rng(seed)
     law = theory_cdf(grid, period, loss)
-    n = int(np.ceil(window / (period * (1.0 - loss)))) + 20                     # enough gaps to fill the window
+    expected = window * (1.0 - loss) / period                                   # gaps of mean T / (1 - p) fill the window
+    n = int(np.ceil(expected + 10.0 * np.sqrt(max(expected, 1.0)) + 20.0))      # ten standard deviations of margin
     means, distances = np.empty(draws), np.empty(draws)
     for k in range(draws):
         gaps = period * rng.geometric(1.0 - loss, n).astype(float)
@@ -117,7 +118,7 @@ def theory_cdf(grid: np.ndarray, period: float, loss: float) -> np.ndarray:
     return np.asarray(age_cdf_periodic(grid, period, loss), dtype=float)
 
 
-def compare_run(folder: str | os.PathLike, warmup: float = 10.0, grid: np.ndarray = GRID, draws: int = 300) -> dict:
+def compare_run(folder: str | os.PathLike, warmup: float = 10.0, grid: np.ndarray = GRID, draws: int = 1000) -> dict:
     """The age at the receiver of one exported run against the law, with the gaps of all its links pooled."""
     row = read_link_run(folder)
     out = dict(folder=row["folder"], run_id=row["run_id"], T=row["T"], p=row["p"], links=0, receptions=0, window_s=None,
@@ -127,7 +128,7 @@ def compare_run(folder: str | os.PathLike, warmup: float = 10.0, grid: np.ndarra
         return out
     obs = pd.read_parquet(obs_path)
     links = receptions_by_link(obs)
-    t_end = float(obs["t_sim"].astype(float).max())
+    t_end = float(obs["t_sim"].astype(float).max())                            # the end of the run: every car stays until then in the C1 scenario
     gaps, d0 = [], []
     for rows in links.values():
         t_rx = rows["t_rx"].to_numpy(dtype=float)
@@ -158,7 +159,7 @@ def compare_run(folder: str | os.PathLike, warmup: float = 10.0, grid: np.ndarra
     return out
 
 
-def compare_grid(root: str | os.PathLike, warmup: float = 10.0, draws: int = 300) -> pd.DataFrame:
+def compare_grid(root: str | os.PathLike, warmup: float = 10.0, draws: int = 1000) -> pd.DataFrame:
     """One row per exported run under ``root``, with the curves in the column ``cdf``."""
     rows = [compare_run(folder, warmup, draws=draws) for folder in find_runs(root)]
     columns = ["folder", "run_id", "T", "p", "links", "receptions", "window_s", "mean_measured", "mean_law", "rel_gap", "rel_noise", "ks",
@@ -173,23 +174,34 @@ def check_ages(table: pd.DataFrame, max_rel: float = 0.05, max_ks: float = 0.05)
     A run passes when the relative gap of its mean age is within ``max_rel``, or within three times the noise of
     a run of this length under the law (``law_noise``), and when the Kolmogorov distance is within ``max_ks``, or
     within the 99th percentile of that noise. So a short run with few receptions is judged against what it can
-    show, and a long run against the 5% of the plan.
+    show, and a long run against the 5% of the plan. Over four runs or more, the gaps must also average out:
+    their mean must stay within 2% or three times its own noise, which catches a small systematic error that no
+    single run can show.
     """
     problems = []
     if not len(table):
         return ["no exported run found"]
+    number = lambda value: float(np.nan_to_num(np.asarray(value if value is not None else 0.0, dtype=float)))
     for _, row in table.iterrows():
         name = os.path.basename(os.path.dirname(row["folder"])) or row["folder"]
         if row["mean_measured"] is None or (isinstance(row["mean_measured"], float) and np.isnan(row["mean_measured"])):
             problems.append("%s: no reception about an object the receiver does not see (or T and p unknown)" % name)
             continue
-        rel_limit = max(max_rel, 3.0 * (row["rel_noise"] or 0.0))
+        rel_limit = max(max_rel, 3.0 * number(row["rel_noise"]))
         if abs(row["rel_gap"]) > rel_limit:
             problems.append("%s (T=%g p=%g): the mean age is %.3f s, the law says %.3f s (%+.1f%%, limit %.1f%%)"
                             % (name, row["T"], row["p"], row["mean_measured"], row["mean_law"], 100 * row["rel_gap"], 100 * rel_limit))
-        ks_limit = max(max_ks, row["ks_noise"] or 0.0)
+        ks_limit = max(max_ks, number(row["ks_noise"]))
         if row["ks"] > ks_limit:
             problems.append("%s (T=%g p=%g): the distribution functions differ by %.3f at most (limit %.3f)" % (name, row["T"], row["p"], row["ks"], ks_limit))
+    # over the runs: the gaps of the mean must average out (the noise of their mean is their noise over the root of their number)
+    valid = table.dropna(subset=["rel_gap"])
+    if len(valid) >= 4:
+        noise = np.sqrt(np.nansum(np.asarray([number(v) for v in valid["rel_noise"]]) ** 2)) / len(valid)
+        limit = max(0.02, 3.0 * noise)
+        if abs(float(valid["rel_gap"].mean())) > limit:
+            problems.append("over the runs: the gaps of the mean age average %+.1f%% (limit %.1f%%): a systematic error, not noise"
+                            % (100 * float(valid["rel_gap"].mean()), 100 * limit))
     return problems
 
 
@@ -216,7 +228,7 @@ def draw(table: pd.DataFrame, path: str, grid: np.ndarray = GRID) -> None:
             rows = part[part["T"] == period]
             if not len(rows):
                 continue
-            cdf = rows["cdf"].iloc[0]
+            cdf = rows["cdf"].iloc[0]                                           # several runs of one cell: the first one (aoc-link --grid warns)
             law = theory_cdf(grid, period, loss)
             reach = grid[np.searchsorted(law, 0.995)] if law[-1] >= 0.995 else grid[-1]
             x_max = max(x_max, float(reach))
@@ -243,7 +255,7 @@ def main(argv=None) -> int:
     ap.add_argument("--table", default=None, help="write the table to this file (.csv or .parquet)")
     ap.add_argument("--max-rel", type=float, default=0.05, help="largest relative gap of the mean age for a PASS (default 0.05)")
     ap.add_argument("--max-ks", type=float, default=0.05, help="largest Kolmogorov distance for a PASS (default 0.05)")
-    ap.add_argument("--draws", type=int, default=300, help="runs drawn from the law to measure the noise (default 300)")
+    ap.add_argument("--draws", type=int, default=1000, help="runs drawn from the law to measure the noise (default 1000)")
     args = ap.parse_args(argv)
     if not os.path.isdir(args.root):
         print("ERROR: %s is not a folder" % args.root, file=sys.stderr)
@@ -256,9 +268,11 @@ def main(argv=None) -> int:
             plain.to_parquet(args.table, index=False)
         else:
             plain.to_csv(args.table, index=False)
+    drawn = False
     if args.out and table["cdf"].notna().any():
         try:
             draw(table, args.out)
+            drawn = True
         except ImportError:
             print("WARNING: matplotlib is not installed, no figure written", file=sys.stderr)
     number = lambda value, digits=3: "none" if value is None or (isinstance(value, float) and np.isnan(value)) else ("%%.%df" % digits) % value
@@ -280,7 +294,7 @@ def main(argv=None) -> int:
     if len(valid):
         print("  over the runs:       largest |gap| of the mean %.1f%%, mean of the gaps %+.1f%%, largest KS %.3f"
               % (100 * valid.abs().max(), 100 * valid.mean(), table["ks"].dropna().max()))
-    if args.out:
+    if drawn:
         print("  figure:              %s" % os.path.abspath(args.out))
     print("  result:              %s%s" % ("PASS" if not problems else "FAIL", "" if not problems else "\n    " + "\n    ".join(problems)))
     return 0 if not problems else 3
