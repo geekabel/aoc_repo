@@ -4,7 +4,7 @@ On a single link (task C1) the object at the receiver has the age Delta = d0 + A
 time since the last received update. The reliability of the object is alpha(Delta), the curve of step 2 of the
 note (``aoc.theory.reliability.alpha``). Step 3 gives its average over time, E[alpha], in three forms
 (``aoc.theory.averages``): the exact law (numerical integral of alpha over the age law), the plateau surrogate
-(closed form, the main result of A3) and the exponential surrogate (closed form, the first idea of the plan).
+(a plain formula, the main result of A3) and the exponential surrogate (a plain formula, the first idea of the plan).
 
 This module measures E[alpha] on each exported run, exactly in time: for every received update i with age at
 reception d0_i and a gap g_i until the next one, the time integral of alpha from d0_i to d0_i + g_i, summed and
@@ -13,10 +13,10 @@ Then it compares with the three forms, each taken at the median d0 of the run.
 
     aoc-ealpha RESULT_FOLDER [--out f4.pdf] [--table ealpha.csv]
 
-The plan asks for a relative error below 5% between the closed form and the simulation (H2). A run of 330 s
+The plan asks for a relative error below 5% between the formula and the simulation (H2). A run of 330 s
 cannot always show that: as in task C2, the noise of a run of this length under the law is drawn and a run
 passes when its gap to the exact law is within 5% or three times that noise. Over the runs the gaps must
-average out. The gap to the plateau closed form is reported for the plan's criterion, with its model error.
+average out. The gap to the plateau formula is reported for the plan's criterion, with its model error.
 """
 from __future__ import annotations
 
@@ -177,7 +177,7 @@ def check_ealpha(table: pd.DataFrame, max_rel: float = 0.05) -> list[str]:
 
 
 def draw(table: pd.DataFrame, path: str, panels: tuple = PANELS) -> None:
-    """Figure F4: E[alpha] against the rate, one line per loss (plateau closed form), markers for the runs, one panel per class."""
+    """Figure F4: E[alpha] against the rate, one line per loss (plateau formula), markers for the runs, one panel per class."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -215,9 +215,9 @@ def draw(table: pd.DataFrame, path: str, panels: tuple = PANELS) -> None:
         ax.set_xlabel("update rate (Hz)")
         ax.set_title("%s, d0 = %.0f ms" % (name, 1000 * float(part["d0_median"].median())), fontsize=8)
         ax.grid(True, lw=0.3, alpha=0.5)
-        ax.text(0.03, 0.05, "largest gap of a run to the closed form at its own d0: %.1f%%" % (100 * worst), transform=ax.transAxes, fontsize=7)
+        ax.text(0.03, 0.05, "largest gap of a run to the formula at its own d0: %.1f%%" % (100 * worst), transform=ax.transAxes, fontsize=7)
     axes[0].set_ylabel("E[alpha]")
-    axes[-1].legend(loc="lower right", frameon=False, title="lines: closed form, dots: runs", title_fontsize=7)
+    axes[-1].legend(loc="lower right", frameon=False, title="lines: formula, dots: runs", title_fontsize=7)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.close(fig)
@@ -269,15 +269,15 @@ def main(argv=None) -> int:
                   "runs within 5%% of the plateau form: %d of %d"
                   % (100 * valid["gap_exact"].abs().max(), 100 * valid["gap_exact"].mean(), 100 * valid["gap_plateau"].abs().max(),
                      100 * valid["gap_plateau"].mean(), int((valid["gap_plateau"].abs() <= 0.05).sum()), len(valid)))
-    print("  measured: time average of alpha(d0 + A) over the run. exact: the law of A integrated numerically; plateau and expo: the closed")
-    print("  forms of the note, all three at the median d0 of the run. gap: measured against each form. noise: standard deviation of the")
+    print("  measured: time average of alpha(d0 + A) over the run. exact: the law of A integrated numerically; plateau and expo: the plain")
+    print("  formulas of the note, all three at the median d0 of the run. gap: measured against each form. noise: standard deviation of the")
     print("  measured value over runs of this length drawn from the law.")
     if drawn:
         print("  figure:              %s" % os.path.abspath(args.out))
     valid = table.dropna(subset=["gap_plateau"])
     if len(valid):
         within = int((valid["gap_plateau"].abs() <= 0.05).sum())
-        print("  H2:                  %d of %d run and class pairs within 5%% of the plateau closed form (largest gap %.1f%%)"
+        print("  H2:                  %d of %d run and class pairs within 5%% of the plateau formula (largest gap %.1f%%)"
               % (within, len(valid), 100 * valid["gap_plateau"].abs().max()))
     print("  result:              %s%s" % ("PASS" if not problems else "FAIL", "" if not problems else "\n    " + "\n    ".join(problems)))
     return 0 if not problems else 3

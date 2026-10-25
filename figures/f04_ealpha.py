@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Figure F4: E[alpha] against the update rate on the single-link runs (C1), measured against the closed form of the note (C3).
+"""Figure F4: E[alpha] against the update rate on the single-link runs (C1), measured against the formula of the note (C3).
 
 Reads the exported runs of C1 (the folder given on the command line, or AOC_C1_RESULTS, or ~/aoc-sim/c1/latest),
 writes f04_ealpha.pdf next to this script, and prints the numbers quoted in the text. When the folder does not
