@@ -102,7 +102,7 @@ class Run:
 
         period     time between two ticks in s (0.1 = the 10 Hz of the plan); a multiple of the step of the truth table
         t_start    first tick (default: the first tick where the vehicle has a row)
-        t_end      last tick (default: the last simulation step)
+        t_end      last tick (default: the last simulation step, or the last true step of the vehicle if it leaves before)
         hold       an object known from a CPM leaves ``tick.v2x`` when its age is above this value in s.
                    Default None: it stays until the end. The fusion decides what an old object is worth.
         drop_self  leave out the CPM objects that describe the vehicle itself (default True).
@@ -139,6 +139,9 @@ class Run:
         if t_end is None:
             k_last = int(self.truth["t"].max() * _US + 0.5) // period_us if len(self.truth) else first_seen
             k_last = max(k_last, max([int(f["_k"].iloc[-1]) for f in (local, v2x) if len(f)], default=k_last))
+            mine_true = truth.loc[(truth["obj_id"] == ego).to_numpy(dtype=bool), "_k"]
+            if len(mine_true):                                                   # a vehicle that left the simulation stops here
+                k_last = min(k_last, int(mine_true.iloc[-1]))
         else:
             k_last = int(np.floor(round(t_end * _US) / period_us))
 
