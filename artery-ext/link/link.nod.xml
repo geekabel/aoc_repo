@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two nodes 5 km apart on the same parallel, in longitude and latitude (netconvert projects them with proj.utm). -->
+<nodes>
+    <node id="west" x="6.8600" y="47.6300" type="priority"/>
+    <node id="east" x="6.9267" y="47.6300" type="priority"/>
+</nodes>

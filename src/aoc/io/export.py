@@ -11,6 +11,7 @@ Output, in <input>/parquet:
   cpm_tx.parquet        one row per CPM sent
   cpm_obj.parquet       one row per object of each CPM sent, with its true identity
   cpm_rx.parquet        one row per CPM received, matched to the CPM sent
+  cpm_drop.parquet      one row per CPM dropped on purpose (AocCpService, task C1), when cpm_drop.csv exists
   local.parquet         one row per (vehicle, sensor, object) detection
   observations.parquet  the table of the AoC plan: one row per object that a vehicle gets,
                         from its own sensors (one row per step) or from a CPM (one row per reception)
@@ -33,7 +34,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-EXPORT_VERSION = "1.1"
+EXPORT_VERSION = "1.2"
 
 # station types of ETSI (vanetza::geonet::StationType)
 STATION_TYPES = {0: "unknown", 1: "pedestrian", 2: "cyclist", 3: "moped", 4: "motorcycle", 5: "passenger_car", 6: "bus",
@@ -125,6 +126,17 @@ def cpm_class(label):
     return kind
 
 
+def iteration_variables(text):
+    """The iteration variables of OMNeT++ as a dictionary: '$T=0.5s, $p=0.3' gives {'T': '0.5s', 'p': '0.3'}."""
+    out = {}
+    for part in str(text or "").split(","):
+        part = part.strip().lstrip("$")
+        if "=" in part:
+            name, value = part.split("=", 1)
+            out[name.strip()] = value.strip()
+    return out
+
+
 def dcc_state(cbr):
     idx = np.searchsorted(DCC_LIMITS, cbr, side="right")
     out = np.array(DCC_STATES, dtype=object)[np.clip(idx, 0, len(DCC_STATES) - 1)]
@@ -164,6 +176,7 @@ def main():
         seed = int(run.get("seed_set", "0") or 0)
     except ValueError:
         seed = 0
+    variables = iteration_variables(run.get("iteration_vars", ""))
 
     truth = read_csv(run_dir, "truth.csv", {"obj_id": "string", "station_type": "Int64"})
     nodes = read_csv(run_dir, "nodes.csv", {"node": "string", "node_id": "string", "station_id": "Int64", "module": "string"})
@@ -175,6 +188,9 @@ def main():
     local = read_csv(run_dir, "local.csv", {"node": "string", "node_id": "string", "sensor": "string", "category": "string",
                                             "obj_id": "string", "track_id": "int64"})
     cbr = read_csv(run_dir, "cbr.csv", {"node": "string", "node_id": "string"})
+    drop = None
+    if os.path.isfile(os.path.join(run_dir, "cpm_drop.csv")):
+        drop = read_csv(run_dir, "cpm_drop.csv", {"rx_node": "string", "rx_id": "string", "station_id": "int64", "reference_time_ms": "int64"})
 
     checks = {}
     if truth.empty:
@@ -303,6 +319,13 @@ def main():
         pdr[rows] = np.where(n_sent > 0, n_got / np.maximum(n_sent, 1), np.nan)
     rx["pdr_window"] = np.clip(pdr, 0.0, 1.0)
 
+    # ---------------------------------------------------------------- CPMs dropped on purpose (task C1)
+    if drop is not None:
+        drop = drop.merge(tx[key + ["t_tx", "tx_id"]], on=key, how="left", validate="many_to_one")
+        checks["cpm_drop_rows"] = int(len(drop))
+        checks["cpm_drop_matched_to_a_sent_cpm"] = int(drop["t_tx"].notna().sum())
+        drop = drop.sort_values(["t_drop", "rx_id"], kind="stable").reset_index(drop=True)
+
     # last channel busy ratio of the receiver
     cbr = cbr.drop_duplicates(["node_id", "t"], keep="last").sort_values("t", kind="stable")
 
@@ -377,6 +400,8 @@ def main():
     write_parquet(tx, os.path.join(out, "cpm_tx.parquet"))
     write_parquet(obj_out, os.path.join(out, "cpm_obj.parquet"))
     write_parquet(rx, os.path.join(out, "cpm_rx.parquet"))
+    if drop is not None:
+        write_parquet(drop, os.path.join(out, "cpm_drop.parquet"))
     write_parquet(local, os.path.join(out, "local.parquet"))
     write_parquet(nodes, os.path.join(out, "nodes.parquet"))
     write_parquet(obs, os.path.join(out, "observations.parquet"), {c: d for c, _, d in OBS_COLUMNS})
@@ -386,9 +411,11 @@ def main():
     summary = {
         "export_version": EXPORT_VERSION, "logger_version": run.get("logger_version", ""), "run_dir": run_dir, "out_dir": out,
         "run_id": run_id, "config": run.get("config", ""), "seed": seed, "weather": args.weather,
+        "iteration_vars": run.get("iteration_vars", ""), "variables": variables,
         "t_first_s": float(steps[0]), "t_last_s": float(steps[-1]), "steps": int(len(steps)),
         "objects_true": int(truth["obj_id"].nunique()), "vehicles_with_middleware": int(nodes["node_id"].nunique()),
         "rows": {"truth": int(len(truth)), "cpm_tx": int(len(tx)), "cpm_obj": int(len(obj)), "cpm_rx": int(len(rx)),
+                 "cpm_drop": int(len(drop)) if drop is not None else None,
                  "local": int(len(local)), "observations": int(len(obs)), "observations_v2x": v2x_rows,
                  "observations_local": int(len(obs)) - v2x_rows},
         "objects_per_cpm_mean": round(float(tx["n_objects"].mean()), 2) if len(tx) else None,
@@ -407,6 +434,8 @@ def main():
         problems.append("no CPM was received")
     if checks["cpm_rx_matched_to_a_sent_cpm"] < checks["cpm_rx_rows"]:
         problems.append("some received CPMs have no sent CPM")
+    if drop is not None and checks["cpm_drop_matched_to_a_sent_cpm"] < checks["cpm_drop_rows"]:
+        problems.append("some dropped CPMs have no sent CPM")
     if checks["cpm_obj_rows"] and checks["cpm_obj_matched_within_2cm"] < 0.999 * checks["cpm_obj_rows"]:
         problems.append("some CPM objects have no true object within 2 cm")
     step_rows = local["category"] != "CA"
@@ -425,7 +454,11 @@ def main():
     print("  run:                 %s (config %s, seed set %d)" % (run_id, summary["config"], seed))
     print("  time covered:        %.1f s to %.1f s, %d steps" % (steps[0], steps[-1], len(steps)))
     print("  true objects:        %d (%s)" % (summary["objects_true"], ", ".join("%d %s" % (v, k) for k, v in summary["classes_true"].items())))
-    print("  CPMs:                %d sent, %d received, %.1f objects per CPM on average" % (r["cpm_tx"], r["cpm_rx"], summary["objects_per_cpm_mean"] or 0))
+    dropped = "" if r["cpm_drop"] is None else ", %d dropped on purpose" % r["cpm_drop"]
+    print("  CPMs:                %d sent, %d received, %.1f objects per CPM on average%s"
+          % (r["cpm_tx"], r["cpm_rx"], summary["objects_per_cpm_mean"] or 0, dropped))
+    if variables:
+        print("  variables:           %s" % ", ".join("%s = %s" % kv for kv in variables.items()))
     print("  observations:        %d rows = %d from CPMs + %d from on-board sensors" % (r["observations"], r["observations_v2x"], r["observations_local"]))
     print("  sources:             " + ", ".join("%s %d" % (k, v) for k, v in summary["sources"].items()))
     a = summary["age_v2x_s"]

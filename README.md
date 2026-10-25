@@ -13,13 +13,13 @@ This repository holds what the tasks produce.
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table, synthetic streams | A8, B9 |
 | `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7 |
-| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan. The aggregation over runs comes later | B5, B8 (done), D4 |
-| `artery-ext/` | Logger for Artery, config files, scripts for the workstation | A6, A7, A8 |
+| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs. The aggregation over runs comes later | B5, B8, C1, D4 |
+| `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, scripts for the workstation | A6, A7, A8, C1 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers. Empty for now | D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, notes about Artery, issue draft | A8, B2 to B9 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, notes about Artery, issue draft | A8, B2 to B9, C1 |
 
 ## Quick start
 
@@ -51,6 +51,7 @@ Other commands:
 | `aoc-kinematics RUN_FOLDER` | Fuses the places and the speeds of each real object by covariance intersection; compares it with the Kalman way (6 to 10 minutes) |
 | `aoc-evaluate RUN_FOLDER` | Runs the whole pipeline for the five ways of the plan and gives the metrics of the plan, one row per way (4 to 11 minutes) |
 | `aoc-synthetic OUT_FOLDER [--scenario NAME]` | Writes a small synthetic run whose right answer is known (a few cars, a known delay and loss); the check commands of B2 to B8 run on it |
+| `aoc-link RESULT_FOLDER [--grid]` | Reads the exported single-link runs of C1 and checks each one against its period T and its loss p |
 
 ## Typical uses
 

@@ -175,6 +175,16 @@ def _grid(truth: pd.DataFrame, names: list[str]) -> tuple[np.ndarray, np.ndarray
 
 def make_observations(scenario: Scenario, truth: pd.DataFrame | None = None) -> pd.DataFrame:
     """The observations table of the scenario with exact states (no noise), one row per object a car gets at a time."""
+    return make_tables(scenario, truth)["observations"]
+
+
+def make_tables(scenario: Scenario, truth: pd.DataFrame | None = None) -> dict:
+    """The tables of a synthetic run with exact states: truth, observations, and the messages as the exporter writes them.
+
+    cpm_tx     one row per CPM sent (t_tx, tx_id, station_id, reference_time_ms, n_objects)
+    cpm_rx     one row per copy received (t_rx, rx_id, station_id, reference_time_ms, tx_id, t_tx, delay)
+    cpm_drop   one row per copy lost (t_drop, rx_id, station_id, reference_time_ms, tx_id, t_tx); a lost copy is counted at its arrival time
+    """
     truth = make_truth(scenario) if truth is None else truth
     names = [car.name for car in scenario.cars]
     classes = {car.name: car.cls for car in scenario.cars}
@@ -226,6 +236,18 @@ def make_observations(scenario: Scenario, truth: pd.DataFrame | None = None) -> 
         "gt_match_id": np.array(names, dtype=object)[o], "sensor": None, "tx_station_id": s.astype(float),
         "reference_time_ms": np.round(times[k] * 1000.0), "meas_src": "radar"})
 
+    k, s = np.nonzero(sending & reaches.any(axis=2))                                        # a CPM is sent when somebody can hear it
+    n_seen = sees.sum(axis=2)
+    cpm_tx = pd.DataFrame({"t_tx": times[k], "tx_id": np.array(names, dtype=object)[s], "station_id": s, "reference_time_ms": np.round(times[k] * 1000.0),
+                           "n_objects": n_seen[k, s]})
+    k, s, r = np.nonzero(delivered)
+    cpm_rx = pd.DataFrame({"t_rx": times[k] + delay[k, s, r], "rx_id": np.array(names, dtype=object)[r], "station_id": s,
+                           "reference_time_ms": np.round(times[k] * 1000.0), "tx_id": np.array(names, dtype=object)[s], "t_tx": times[k],
+                           "delay": delay[k, s, r]})
+    k, s, r = np.nonzero(message & lost)
+    cpm_drop = pd.DataFrame({"t_drop": times[k] + delay[k, s, r], "rx_id": np.array(names, dtype=object)[r], "station_id": s,
+                             "reference_time_ms": np.round(times[k] * 1000.0), "tx_id": np.array(names, dtype=object)[s], "t_tx": times[k]})
+
     obs = pd.concat([local, v2x], ignore_index=True)
     obs["run_id"] = scenario.name
     obs["seed"] = np.int32(scenario.seed)
@@ -252,7 +274,7 @@ def make_observations(scenario: Scenario, truth: pd.DataFrame | None = None) -> 
             obs[c] = obs[c].astype("int32")
         else:
             obs[c] = obs[c].astype("float64")
-    return obs
+    return {"truth": truth, "observations": obs, "cpm_tx": cpm_tx, "cpm_rx": cpm_rx, "cpm_drop": cpm_drop}
 
 
 def summary(scenario: Scenario, obs: pd.DataFrame, truth: pd.DataFrame) -> dict:
@@ -261,8 +283,9 @@ def summary(scenario: Scenario, obs: pd.DataFrame, truth: pd.DataFrame) -> dict:
     return {"run_id": scenario.name, "synthetic": True, "seed": scenario.seed, "cars": len(scenario.cars),
             "duration_s": scenario.duration, "step_s": scenario.step, "sensor_range_m": scenario.sensor_range,
             "cpm_period_s": scenario.cpm_period, "cpm_range_m": scenario.cpm_range, "delay_s": list(scenario.delay_bounds),
-            "loss": scenario.loss, "rows": {"truth": int(len(truth)), "observations": int(len(obs)), "observations_v2x": int(len(v2x)),
-                                            "observations_local": int(len(obs) - len(v2x))},
+            "loss": scenario.loss, "variables": {"T": "%gs" % scenario.cpm_period, "p": "%g" % scenario.loss},
+            "rows": {"truth": int(len(truth)), "observations": int(len(obs)), "observations_v2x": int(len(v2x)),
+                     "observations_local": int(len(obs) - len(v2x))},
             "age_v2x_s": {"median": round(float(v2x["age"].median()), 4) if len(v2x) else None,
                           "max": round(float(v2x["age"].max()), 4) if len(v2x) else None},
             "result": "PASS"}
@@ -279,14 +302,17 @@ def make_run(scenario: Scenario, noise: NoiseModel | None | bool = True) -> Run:
 
 
 def write_run(scenario: Scenario, folder: str | os.PathLike) -> dict:
-    """Writes observations.parquet (exact states), truth.parquet and export_summary.json, as ``aoc-export`` does."""
+    """Writes observations.parquet (exact states), truth.parquet, the message tables and export_summary.json, as ``aoc-export`` does."""
     folder = os.fspath(folder)
     os.makedirs(folder, exist_ok=True)
-    truth = make_truth(scenario)
-    obs = make_observations(scenario, truth)
+    tables = make_tables(scenario)
+    truth, obs = tables["truth"], tables["observations"]
     write_parquet(truth, os.path.join(folder, "truth.parquet"))
     write_parquet(obs, os.path.join(folder, "observations.parquet"), {c: d for c, _, d in OBS_COLUMNS})
+    for name in ("cpm_tx", "cpm_rx", "cpm_drop"):
+        write_parquet(tables[name], os.path.join(folder, name + ".parquet"))
     info = summary(scenario, obs, truth)
+    info["rows"].update(cpm_tx=int(len(tables["cpm_tx"])), cpm_rx=int(len(tables["cpm_rx"])), cpm_drop=int(len(tables["cpm_drop"])))
     with open(os.path.join(folder, "export_summary.json"), "w", encoding="utf-8") as fh:
         json.dump(info, fh, indent=1)
     return info

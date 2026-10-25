@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Three cars on one straight road, all at 10 m/s, so the distances between them never change:
+
+    receiver ........ 180 m ........ sender .. 40 m .. object        (direction of travel: east)
+
+The sender sees the object with its front radars (40 m, within 65 m and 150 m) and nothing else.
+The object sees the sender with its rear radars and nothing else.
+The receiver sees nothing: the sender is 180 m ahead (beyond 150 m), the object 220 m.
+So the receiver knows the object only through the CPMs of the sender: one link, one object.
+The CPMs of the object about the sender make a second link of the same kind.
+
+The cars enter one second apart so that Artery gives them the modules node[0], node[1], node[2]
+in this order: object, sender, receiver. The departure positions take the first seconds into account.
+-->
+<routes>
+    <vType id="car" vClass="passenger" length="4.5" width="1.8" maxSpeed="10.0" speedFactor="1.0" speedDev="0.0" sigma="0.0"
+           accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
+    <route id="eastbound" edges="road"/>
+    <vehicle id="object"   type="car" route="eastbound" depart="0.0" departPos="300.0" departSpeed="10.0"/>
+    <vehicle id="sender"   type="car" route="eastbound" depart="1.0" departPos="270.0" departSpeed="10.0"/>
+    <vehicle id="receiver" type="car" route="eastbound" depart="2.0" departPos="100.0" departSpeed="10.0"/>
+</routes>

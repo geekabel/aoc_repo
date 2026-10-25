@@ -10,8 +10,9 @@ The installation lives in `~/aoc-sim`. Before a manual run, load its settings wi
 
 | Folder | Content |
 | --- | --- |
-| `aoc/` | The logger: one OMNeT++ module (`AocLogger`) and the network `AocWorld` that contains it |
-| `config/` | `services-cp.xml` (CAM and CPM services) and `sensors-aoc.xml` (the sensors of AoC runs) |
+| `aoc/` | The logger (`AocLogger`), the network `AocWorld` that contains it, and `AocCpService`: the CP service of Artery with a controlled loss of received CPMs (task C1) |
+| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service) and `sensors-aoc.xml` (the sensors of AoC runs) |
+| `link/` | The single-link validation scenario of task C1: the road (SUMO), the three cars, the OMNeT++ configuration with the grid T x p |
 | `scripts/` | The three scripts to run on the workstation |
 | `tools/` | The templates of the scripts and `build_scripts.py`, which builds them |
 
@@ -24,6 +25,7 @@ Each script is one file. Copy it to the workstation and run it with `bash`. Each
 | `scripts/a6_install.sh` | Installs OMNeT++, SUMO and Artery for one user, then runs three test simulations | about 1 hour |
 | `scripts/a7_cp_demo.sh` | Runs the Artery example with the real CP service and exports the CPM logs to CSV | 1 minute |
 | `scripts/a8_logger.sh` | Adds the logger to Artery, runs the example with it, exports the logs to parquet | a few minutes the first time |
+| `scripts/c1_link.sh` | Runs the single-link scenario on the grid of the plan (16 runs), exports them, checks the period and the loss of each one | 15 to 40 minutes; `--quick` for one run of 30 s |
 
 Options are environment variables written in front of the command. `bash SCRIPT --help` lists them. The most useful ones:
 
@@ -33,7 +35,7 @@ A8_SENSORS=example bash a8_logger.sh        # use the sensors of the Artery exam
 bash a8_logger.sh --export FOLDER           # export one run again
 ```
 
-`a7_cp_demo.sh` and `a8_logger.sh` hold copies of files of this repository. Do not edit them by hand.
+`a7_cp_demo.sh`, `a8_logger.sh` and `c1_link.sh` hold copies of files of this repository. Do not edit them by hand.
 Change the source file, then run `make scripts`.
 
 ## The logger
@@ -47,13 +49,23 @@ It does not change `CpService` or any other module.
 | `CpmReceived` | `cpm_rx.csv` | one CPM received |
 | `EnvironmentModel.refresh` | `truth.csv`, `local.csv` | the true state of one object, one detection by one sensor |
 | `ChannelLoad` | `cbr.csv` | one channel load value of one vehicle |
+| `CpmDropped` | `cpm_drop.csv` | one CPM dropped on purpose by `AocCpService` (task C1) |
 
 The files go to `<result folder>/aoc-<config name>-<run number>/`. Two more files describe the run: `nodes.csv` and `run.csv`.
 
 To use the logger in a scenario that is based on the environment model, set `network = AocWorld`
 in its `omnetpp.ini`, or pass `--network=AocWorld` on the command line.
 
-How `a8_logger.sh` installs it:
+## The lossy CP service
+
+`AocCpService` extends `CpService`. Each received CPM is dropped with probability `dropProbability` before the
+service reads it, with the random number generator of the module (a seed set gives the same drops), and the
+signal `CpmDropped` is emitted. With `dropProbability = 0` it behaves exactly like `CpService`. The single-link
+scenario (`link/omnetpp.ini`) uses it with a fixed period (`minInterval = maxInterval = T`,
+`withDccRestriction = false`) and every perceived object in every CPM (`objectInclusionConfig = 0`).
+See `docs/link.md`.
+
+How `a8_logger.sh` (and `c1_link.sh`) installs the sources:
 
 1. It copies `aoc/` to `artery/scenarios/aoc`.
 2. It adds one block at the end of `artery/scenarios/CMakeLists.txt`. The original file is kept as `CMakeLists.txt.a8-backup`.

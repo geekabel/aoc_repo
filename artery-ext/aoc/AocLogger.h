@@ -31,7 +31,7 @@ public:
     void handleMessage(omnetpp::cMessage*) override;
     void finish() override;
 
-    // CpmSent, CpmReceived, EnvironmentModel.refresh
+    // CpmSent, CpmReceived, CpmDropped, EnvironmentModel.refresh
     void receiveSignal(omnetpp::cComponent*, omnetpp::simsignal_t, omnetpp::cObject*, omnetpp::cObject*) override;
     // ChannelLoad
     void receiveSignal(omnetpp::cComponent*, omnetpp::simsignal_t, double, omnetpp::cObject*) override;
@@ -47,6 +47,7 @@ private:
     const Node& node(omnetpp::cComponent* source);
     void logCpmSent(omnetpp::cComponent* source, const artery::CpObject&);
     void logCpmReceived(omnetpp::cComponent* source, const artery::CpObject&);
+    void logCpmDropped(omnetpp::cComponent* source, const artery::CpObject&);
     void dumpTruth();
     void dumpLocal();
     void closeAll();
@@ -61,8 +62,8 @@ private:
     std::unordered_map<int, Node> mNodes;   // key: module id of the host
     std::unordered_map<int, omnetpp::SimTime> mLastCbr;   // key: module id of the host
     std::string mDir;
-    std::ofstream mTruth, mLocal, mTx, mObj, mRx, mCbr, mNodesFile;
-    unsigned long mRowsTruth = 0, mRowsLocal = 0, mRowsTx = 0, mRowsObj = 0, mRowsRx = 0, mRowsCbr = 0;
+    std::ofstream mTruth, mLocal, mTx, mObj, mRx, mDrop, mCbr, mNodesFile;
+    unsigned long mRowsTruth = 0, mRowsLocal = 0, mRowsTx = 0, mRowsObj = 0, mRowsRx = 0, mRowsDrop = 0, mRowsCbr = 0;
 };
 
 #endif /* AOC_LOGGER_H_ */

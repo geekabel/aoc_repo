@@ -4,6 +4,7 @@
  *
  * The logger is a passive listener at the top of the network:
  *  - "CpmSent" and "CpmReceived" are emitted by artery.envmod.service.CpService
+ *  - "CpmDropped" is emitted by AocCpService when it loses a received CPM on purpose (task C1)
  *  - "EnvironmentModel.refresh" is emitted by the global environment model at each SUMO step.
  *    Listeners of a module are called before the listeners of its parent, so the local
  *    environment models of the vehicles are already updated when the logger is called.
@@ -45,10 +46,11 @@ namespace
 
 const simsignal_t sigCpmSent = cComponent::registerSignal("CpmSent");
 const simsignal_t sigCpmReceived = cComponent::registerSignal("CpmReceived");
+const simsignal_t sigCpmDropped = cComponent::registerSignal("CpmDropped");
 const simsignal_t sigRefresh = cComponent::registerSignal("EnvironmentModel.refresh");
 const simsignal_t sigChannelLoad = cComponent::registerSignal("ChannelLoad");
 
-const char* const kLoggerVersion = "1.0";
+const char* const kLoggerVersion = "1.1";
 
 // simulation time with microsecond digits, the same text in every file
 std::string T(const SimTime& t)
@@ -164,6 +166,7 @@ void AocLogger::initialize()
     openFile(mObj, mDir, "cpm_obj.csv",
         "station_id,reference_time_ms,obj_index,object_id,meas_delta_ms,x_cm,y_cm,object_age_ms,quality,has_velocity,speed_cms,direction_raw,class_label,sensor_ids");
     openFile(mRx, mDir, "cpm_rx.csv", "t_rx,rx_node,rx_id,station_id,reference_time_ms,rx_x,rx_y");
+    openFile(mDrop, mDir, "cpm_drop.csv", "t_drop,rx_node,rx_id,station_id,reference_time_ms");
     openFile(mCbr, mDir, "cbr.csv", "t,node,node_id,cbr");
     openFile(mNodesFile, mDir, "nodes.csv", "t_first,node,node_id,station_id,module");
 
@@ -183,6 +186,7 @@ void AocLogger::initialize()
     cModule* sys = getSystemModule();
     sys->subscribe(sigCpmSent, this);
     sys->subscribe(sigCpmReceived, this);
+    sys->subscribe(sigCpmDropped, this);
     sys->subscribe(sigRefresh, this);
     if (mLogChannelLoad) {
         sys->subscribe(sigChannelLoad, this);
@@ -205,6 +209,7 @@ void AocLogger::unsubscribeAll()
     if (sys) {
         sys->unsubscribe(sigCpmSent, this);
         sys->unsubscribe(sigCpmReceived, this);
+        sys->unsubscribe(sigCpmDropped, this);
         sys->unsubscribe(sigRefresh, this);
         if (sys->isSubscribed(sigChannelLoad, this)) {
             sys->unsubscribe(sigChannelLoad, this);
@@ -214,7 +219,7 @@ void AocLogger::unsubscribeAll()
 
 void AocLogger::closeAll()
 {
-    for (std::ofstream* f : {&mTruth, &mLocal, &mTx, &mObj, &mRx, &mCbr, &mNodesFile}) {
+    for (std::ofstream* f : {&mTruth, &mLocal, &mTx, &mObj, &mRx, &mDrop, &mCbr, &mNodesFile}) {
         if (f->is_open()) {
             f->close();
         }
@@ -233,6 +238,7 @@ void AocLogger::finish()
     recordScalar("aocCpmTxRows", mRowsTx);
     recordScalar("aocCpmObjRows", mRowsObj);
     recordScalar("aocCpmRxRows", mRowsRx);
+    recordScalar("aocCpmDropRows", mRowsDrop);
     EV_INFO << "AocLogger wrote " << mDir << endl;
 }
 
@@ -286,6 +292,10 @@ void AocLogger::receiveSignal(cComponent* source, simsignal_t signal, cObject* o
     } else if (signal == sigCpmReceived) {
         if (auto cpm = dynamic_cast<artery::CpObject*>(obj)) {
             logCpmReceived(source, *cpm);
+        }
+    } else if (signal == sigCpmDropped) {
+        if (auto cpm = dynamic_cast<artery::CpObject*>(obj)) {
+            logCpmDropped(source, *cpm);
         }
     }
 }
@@ -401,6 +411,16 @@ void AocLogger::logCpmReceived(cComponent* source, const artery::CpObject& objec
     }
     mRx << T(simTime()) << ',' << n.name << ',' << n.traciId << ',' << cpm->header.stationId << ',' << reference << ',' << rxX << ',' << rxY << '\n';
     ++mRowsRx;
+}
+
+void AocLogger::logCpmDropped(cComponent* source, const artery::CpObject& object)
+{
+    const Node& n = node(source);
+    const artery::Cpm& cpm = object.asn1();
+    uint64_t reference = 0;
+    asn_INTEGER2uint64(&cpm->payload.managementContainer.referenceTime, &reference);
+    mDrop << T(simTime()) << ',' << n.name << ',' << n.traciId << ',' << cpm->header.stationId << ',' << reference << '\n';
+    ++mRowsDrop;
 }
 
 void AocLogger::dumpTruth()
