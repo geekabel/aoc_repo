@@ -29,6 +29,7 @@ aoc-discount = "aoc.fusion.discounting:main"
 aoc-combine = "aoc.fusion.combination:main"
 aoc-kinematics = "aoc.fusion.kinematics:main"
 aoc-evaluate = "aoc.analysis.metrics:main"
+aoc-synthetic = "aoc.io.synthetic:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
