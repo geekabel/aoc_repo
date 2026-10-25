@@ -16,6 +16,6 @@ simple AocCpService extends CpService
 {
     parameters:
         @class(artery::AocCpService);
-        @signal[CpmDropped](type=CpObject);
+        @signal[CpmDropped](type=artery::CpObject);
         double dropProbability = default(0.0);     // 0 to 1 (excluded): each received CPM is lost with this probability
 }

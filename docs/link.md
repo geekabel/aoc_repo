@@ -41,7 +41,8 @@ The period is fixed by the parameters of `CpService` itself: `minInterval = maxI
 perceived object is in every CPM; with the ETSI rules a car at constant speed would be sent once per second
 only). The sensor information container is sent once per second.
 
-`omnetpp.ini` has two configurations:
+`omnetpp.ini` has two configurations (the quick one is written as iterations of one value, so that the logger records
+T and p the same way):
 
 | Configuration | Runs | What |
 | --- | --- | --- |
@@ -77,7 +78,7 @@ One row per run, and PASS when every run is what its settings say:
 | --- | --- |
 | the period | the median time between two CPMs of a sender is T, within 1% |
 | the loss | the share of the dropped copies, among the copies that arrived or were dropped, is p within three standard errors (plus 0.005) |
-| the object | the receiver got rows about an object its own sensors never saw, and at least 90% of what the sender sent after the first reception |
+| the object | the receiver got rows about an object its own sensors never saw, and the share of the sender's CPMs that reached it is at least 0.9 (1 - p) - 0.05 |
 | the single link | with `--single-link`: the receivers' own sensors see nothing |
 | the grid | with `--grid`: the 16 cells are there, once each |
 

@@ -412,6 +412,7 @@ running=0
 for n in $(seq 0 $((N_RUNS - 1))); do
     one_run "$n" &
     running=$((running + 1))
+    sleep 1                      # two runs that start together could pick the same port for SUMO
     if [ "$running" -ge "$C1_JOBS" ]; then wait -n 2>/dev/null || wait; running=$((running - 1)); fi
 done
 wait
@@ -420,7 +421,7 @@ if [ -n "$FAILED_RUNS" ]; then
     FIRST="$(echo "$FAILED_RUNS" | awk '{print $1}')"
     step_done "simulation" "FAILED" "runs $FAILED_RUNS"
     HINT="Read $RES/run-$FIRST.log. "
-    if grep -q "AocCpService\|AocWorld" "$RES/run-$FIRST.log"; then HINT="${HINT}A module of the AoC library was not found: the library is not loaded or not built. Paste the report in the chat."
+    if grep -q "NED type\|not found\|no such" "$RES/run-$FIRST.log"; then HINT="${HINT}A module or a file was not found (the AoC library not loaded, or a file of the scenario missing). Paste the report in the chat."
     elif grep -q "Connection refused\|TraCI" "$RES/run-$FIRST.log"; then HINT="${HINT}Artery could not talk to SUMO. Check that 'sumo --version' works after 'source $ENV_FILE'."
     else HINT="${HINT}Paste the report in the chat."; fi
     finish_fail "$(echo "$FAILED_RUNS" | wc -w) run(s) ended with an error." "$HINT" "$RES" "$(grep -v '^[[:space:]]*$' "$RES/run-$FIRST.log" | tail -n 10 | cut -c1-300)"

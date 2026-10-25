@@ -40,6 +40,7 @@ void AocCpService::finish()
 
 void AocCpService::indicate(const vanetza::btp::DataIndication& ind, std::unique_ptr<vanetza::UpPacket> packet)
 {
+    Enter_Method("indicate");
     if (mDropProbability > 0.0 && uniform(0.0, 1.0) < mDropProbability) {
         ++mDropped;
         Asn1PacketVisitor<Cpm> visitor;

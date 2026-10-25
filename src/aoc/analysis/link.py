@@ -14,7 +14,8 @@ The checks of one run:
   - the loss: the share of the copies dropped, among the copies that arrived or were dropped, is p within
     three standard errors (plus 0.005 for the rounding);
   - the receiver got the object: at least one received row about an object that the receiver's own sensors
-    never saw, and these rows are at least 90% of what the sender sent after the receiver's first reception;
+    never saw, and the share of the sender's CPMs that reached the receiver (from its first reception on) is at
+    least 0.9 (1 - p) - 0.05;
   - the single link: in the scenario of the plan the receiver's own sensors see nothing.
 """
 from __future__ import annotations

@@ -765,7 +765,7 @@ simple AocCpService extends CpService
 {
     parameters:
         @class(artery::AocCpService);
-        @signal[CpmDropped](type=CpObject);
+        @signal[CpmDropped](type=artery::CpObject);
         double dropProbability = default(0.0);     // 0 to 1 (excluded): each received CPM is lost with this probability
 }
 C1_FILE_EOF
@@ -842,6 +842,7 @@ void AocCpService::finish()
 
 void AocCpService::indicate(const vanetza::btp::DataIndication& ind, std::unique_ptr<vanetza::UpPacket> packet)
 {
+    Enter_Method("indicate");
     if (mDropProbability > 0.0 && uniform(0.0, 1.0) < mDropProbability) {
         ++mDropped;
         Asn1PacketVisitor<Cpm> visitor;
@@ -875,8 +876,8 @@ write_scenario() {
 #   link        the grid of the plan: T in {1, 0.5, 0.2, 0.1} s (1, 2, 5, 10 Hz) x p in {0, 0.1, 0.3, 0.5}, 16 runs of 330 s
 #   link_quick  one run of 30 s (T = 0.5 s, p = 0.3), to check the chain
 #
-# Run with the AoC logger library loaded (c1_link.sh does it):
-#   python3 tools/run_artery.py -l build/run-artery.ini -s scenarios/aoc-link --all -j 4 -- -u Cmdenv -c link
+# Run with the AoC library loaded (c1_link.sh does it, one process per run number):
+#   python3 tools/run_artery.py -l build/run-artery.ini -s scenarios/aoc-link -- -u Cmdenv -c link -r 0
 
 [General]
 network = AocWorld
@@ -943,17 +944,18 @@ num-rngs = 2
 
 [Config link]
 description = "single link, the grid of the plan: period T x loss p"
-*.node[*].middleware.CP.minInterval = ${T = 1s, 0.5s, 0.2s, 0.1s}
+*.node[*].middleware.CP.minInterval = ${T=1s,0.5s,0.2s,0.1s}
 *.node[*].middleware.CP.maxInterval = ${T}
-*.node[*].middleware.CP.dropProbability = ${p = 0, 0.1, 0.3, 0.5}
+*.node[*].middleware.CP.dropProbability = ${p=0,0.1,0.3,0.5}
 repeat = 1
 
 [Config link_quick]
 description = "single link, one short run to check the chain"
 sim-time-limit = 30s
-*.node[*].middleware.CP.minInterval = 0.5s
-*.node[*].middleware.CP.maxInterval = 0.5s
-*.node[*].middleware.CP.dropProbability = 0.3
+# written as iterations of one value, so that the logger records T and p in run.csv like the grid
+*.node[*].middleware.CP.minInterval = ${T=0.5s}
+*.node[*].middleware.CP.maxInterval = ${T}
+*.node[*].middleware.CP.dropProbability = ${p=0.3}
 C1_FILE_EOF
     put_file "$LINK_DIR/link.nod.xml" <<'C1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1542,7 +1544,8 @@ The checks of one run:
   - the loss: the share of the copies dropped, among the copies that arrived or were dropped, is p within
     three standard errors (plus 0.005 for the rounding);
   - the receiver got the object: at least one received row about an object that the receiver's own sensors
-    never saw, and these rows are at least 90% of what the sender sent after the receiver's first reception;
+    never saw, and the share of the sender's CPMs that reached the receiver (from its first reception on) is at
+    least 0.9 (1 - p) - 0.05;
   - the single link: in the scenario of the plan the receiver's own sensors see nothing.
 """
 from __future__ import annotations
@@ -1934,6 +1937,7 @@ running=0
 for n in $(seq 0 $((N_RUNS - 1))); do
     one_run "$n" &
     running=$((running + 1))
+    sleep 1                      # two runs that start together could pick the same port for SUMO
     if [ "$running" -ge "$C1_JOBS" ]; then wait -n 2>/dev/null || wait; running=$((running - 1)); fi
 done
 wait
@@ -1942,7 +1946,7 @@ if [ -n "$FAILED_RUNS" ]; then
     FIRST="$(echo "$FAILED_RUNS" | awk '{print $1}')"
     step_done "simulation" "FAILED" "runs $FAILED_RUNS"
     HINT="Read $RES/run-$FIRST.log. "
-    if grep -q "AocCpService\|AocWorld" "$RES/run-$FIRST.log"; then HINT="${HINT}A module of the AoC library was not found: the library is not loaded or not built. Paste the report in the chat."
+    if grep -q "NED type\|not found\|no such" "$RES/run-$FIRST.log"; then HINT="${HINT}A module or a file was not found (the AoC library not loaded, or a file of the scenario missing). Paste the report in the chat."
     elif grep -q "Connection refused\|TraCI" "$RES/run-$FIRST.log"; then HINT="${HINT}Artery could not talk to SUMO. Check that 'sumo --version' works after 'source $ENV_FILE'."
     else HINT="${HINT}Paste the report in the chat."; fi
     finish_fail "$(echo "$FAILED_RUNS" | wc -w) run(s) ended with an error." "$HINT" "$RES" "$(grep -v '^[[:space:]]*$' "$RES/run-$FIRST.log" | tail -n 10 | cut -c1-300)"

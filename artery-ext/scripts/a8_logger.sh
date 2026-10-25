@@ -767,7 +767,7 @@ simple AocCpService extends CpService
 {
     parameters:
         @class(artery::AocCpService);
-        @signal[CpmDropped](type=CpObject);
+        @signal[CpmDropped](type=artery::CpObject);
         double dropProbability = default(0.0);     // 0 to 1 (excluded): each received CPM is lost with this probability
 }
 A8_FILE_EOF
@@ -844,6 +844,7 @@ void AocCpService::finish()
 
 void AocCpService::indicate(const vanetza::btp::DataIndication& ind, std::unique_ptr<vanetza::UpPacket> packet)
 {
+    Enter_Method("indicate");
     if (mDropProbability > 0.0 && uniform(0.0, 1.0) < mDropProbability) {
         ++mDropped;
         Asn1PacketVisitor<Cpm> visitor;
