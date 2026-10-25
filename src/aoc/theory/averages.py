@@ -9,7 +9,7 @@ What the script does
   2. Closed forms of E[alpha] with the plateau surrogate (and with the
      exponential surrogate of the Plan, for comparison).
      Check of the algebra against the simulated process.
-  3. Model error: closed forms against the exact law (numerical integral),
+  3. Model error: the formulas against the exact value (numerical integral),
      on the E2 grid: rate in {1, 2, 5, 10} Hz, loss in {0, 0.1, 0.3, 0.5}.
 
 Run:  python -m aoc.theory.averages        (about 1 minute)
@@ -152,7 +152,7 @@ def main():
     res["age_cdf_worst_gap"] = worst
 
     print("=" * 86)
-    print("2. Algebra check: closed form of the plateau surrogate against the simulated process")
+    print("2. Algebra check: the formula of the plateau surrogate against the simulated process")
     worst = 0.0
     for name in ("pedestrian", "car (moving)", "vehicle (parked)"):
         D0, tau2 = sur[name]
@@ -175,7 +175,7 @@ def main():
 
     print("=" * 86)
     print(f"3. Model error on the E2 grid (rates {RATES} Hz, losses {LOSSES}), d0 = {D0_DELAY} s")
-    print("   relative error of the closed form against the exact law, worst case over the grid")
+    print("   relative error of the formula against the exact value, worst case over the grid")
     print(f"   {'class':18s} | {'Poisson':^31s} | {'periodic':^31s}")
     print(f"   {'':18s} | {'plateau':>14s} {'exponential':>16s} | {'plateau':>14s} {'exponential':>16s}")
     for name in par:
@@ -203,7 +203,7 @@ def main():
         print(f"   {name:18s} | {fmt(worst_e['pp']):>14s} {fmt(worst_e['ep']):>16s} | {fmt(worst_e['pt']):>14s} {fmt(worst_e['et']):>16s}")
 
     print("=" * 86)
-    print("4. Values of E[alpha] for the pedestrian (exact law / plateau closed form)")
+    print("4. Values of E[alpha] for the pedestrian (exact value / plateau formula)")
     for kind in ("poisson", "periodic"):
         print(f"   {kind}")
         print("   rate    " + "".join(f"      p = {p:.1f}      " for p in LOSSES))

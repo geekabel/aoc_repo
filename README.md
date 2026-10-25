@@ -53,7 +53,7 @@ Other commands:
 | `aoc-synthetic OUT_FOLDER [--scenario NAME]` | Writes a small synthetic run whose right answer is known (a few cars, a known delay and loss); the check commands of B2 to B8 run on it |
 | `aoc-link RESULT_FOLDER [--grid]` | Reads the exported single-link runs of C1 and checks each one against its period T and its loss p |
 | `aoc-ages RESULT_FOLDER [--out f3.pdf]` | Compares the age at the receiver of the single-link runs with the law of the note, and draws figure F3 |
-| `aoc-ealpha RESULT_FOLDER [--out f4.pdf]` | Measures E[alpha] on the single-link runs for every class of the note and compares it with the exact law and the two closed forms; draws figure F4 |
+| `aoc-ealpha RESULT_FOLDER [--out f4.pdf]` | Measures E[alpha] on the single-link runs for every class of the note and compares it with the exact law and the two formulas; draws figure F4 |
 
 ## Typical uses
 

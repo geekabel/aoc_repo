@@ -185,7 +185,7 @@ def test_grid_command_and_figure(tmp_path, capsys):
 
 
 def test_a3_results_are_consistent():
-    """The closed form of the plateau surrogate matches the exact law within 3% on the grid of the plan, as A3 says (1.5% at d0 = 0.13 s)."""
+    """The formula of the plateau surrogate matches the exact law within 3% on the grid of the plan, as A3 says (1.5% at d0 = 0.13 s)."""
     for name, par in CLASSES.items():
         dd0, tau2 = a2.plateau_surrogate(*par)
         for period in (1.0, 0.5, 0.2, 0.1):

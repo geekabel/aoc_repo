@@ -172,7 +172,7 @@ def plateau_surrogate(sx, sv, sxv, q, eps=EPS):
     """
     Two-parameter surrogate: alpha = 1 up to age D0, then exp(-(age - D0) / tau2).
     Fitted on two points of the exact law: alpha = 0.9 and alpha = 0.5.
-    Its Poisson average is closed form: E = 1 - exp(-mu D0) / (mu tau2 + 1).
+    Its Poisson average has a plain formula: E = 1 - exp(-mu D0) / (mu tau2 + 1).
     """
     d9 = age_at_level(0.9, sx, sv, sxv, q, eps)
     d5 = age_at_level(0.5, sx, sv, sxv, q, eps)

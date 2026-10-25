@@ -4,8 +4,8 @@ A4 of the AoC plan: the inverse rate law and the DCC feasibility check.
 
 What the script does
   1. Inverse laws with the plateau surrogate:
-     Poisson   smallest generation rate for a target (closed form, Lambert W)
-     periodic  longest period for a target (closed form without loss,
+     Poisson   smallest generation rate for a target (a formula, Lambert W)
+     periodic  longest period for a target (a formula without loss,
                bisection with loss)
      floor     longest period that keeps alpha above the target at all times
   2. Check of the inverses: put the result back into the forward formulas,
@@ -49,7 +49,7 @@ def mu_min_poisson(target, D0, tau2, d0=0.0):
 
 
 def t_max_periodic_no_loss(target, D0, tau2, d0=0.0):
-    """Longest period with E >= target when no update is lost (closed form, case d0 <= D0)."""
+    """Longest period with E >= target when no update is lost (a formula, case d0 <= D0)."""
     Dp = D0 - d0
     d = Dp * (1.0 - target) + tau2
     w = special.lambertw(-(1.0 / target) * math.exp(-d / (target * tau2)), k=0).real
@@ -141,7 +141,7 @@ def main():
                     mono = False
                 prev = e
     print(f"   forward formula at the inverse gives the target back: largest gap {worst_back:.2e}")
-    print(f"   closed form without loss against the bisection: largest gap {worst_closed:.2e} s")
+    print(f"   the formula without loss against the bisection: largest gap {worst_closed:.2e} s")
     print(f"   E[alpha] falls when the period grows (all classes, 4 losses): {mono}")
     res["checks"] = {"back": worst_back, "closed_no_loss": worst_closed, "monotone": mono}
 

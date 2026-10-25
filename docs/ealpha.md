@@ -14,8 +14,8 @@ the average over time:
 | Form | What | Where |
 | --- | --- | --- |
 | exact | alpha(d0 + a) integrated over the age law of A (numerical) | `averages.e_exact_periodic` |
-| plateau | the closed form with the plateau surrogate of alpha (alpha = 1 up to D0, then exponential), the main result of A3 | `averages.e_plateau_periodic` |
-| expo | the closed form with the exponential surrogate, the first idea of the plan | `averages.e_expo_periodic` |
+| plateau | a plain formula, with the plateau surrogate of alpha (alpha = 1 up to D0, then exponential), the main result of A3 | `averages.e_plateau_periodic` |
+| expo | a plain formula, with the exponential surrogate, the first idea of the plan | `averages.e_expo_periodic` |
 
 The three forms are taken at the median d0 of the run.
 
@@ -33,7 +33,7 @@ is the same for every class, so the measure is made for the five classes of the 
 As in C2, 1000 runs of the same window are drawn from the law (geometric gaps, the measured d0 values drawn again)
 and give the standard deviation of the measured E[alpha]. A run passes when its gap to the exact law is within 5%
 or within three times that standard deviation. Per class, over four runs or more, the gaps must average out
-(within 2% or three times their own noise). The gap to the plateau closed form is what the plan's H2 asks to be
+(within 2% or three times their own noise). The gap to the plateau formula is what the plan's H2 asks to be
 below 5%: it is reported with the number of runs within 5%, and it holds the model error of the surrogate on top
 of the noise.
 
@@ -53,7 +53,7 @@ and the noise; then a line over the runs. Options: `--warmup` (10 s), `--max-rel
 The 16 cells of the plan as synthetic streams (the same three cars, delay 0.02 s, 330 s, seeds 0 to 15 in the
 order of the grid): PASS for the five classes. The gap to the exact law is within three times the noise on every
 run; the largest is 5.2% (the car at T = 1 s, p = 0.3, noise 2.1%) and 4.3% for the truck on the same cell. The
-gap to the plateau closed form is within 5% on every run and every class (largest 4.7%, the same cell), with a
+gap to the plateau formula is within 5% on every run and every class (largest 4.7%, the same cell), with a
 mean of -0.2 to -1.2% per class: the surrogate is slightly above the exact law, by 1.1% for the parked vehicle
 whose alpha at age 0 is 0.989 and not 1. With one seed per cell this is one seed away from a run above 5%; the
 noise columns say so. The exponential surrogate is 1 to 23% too low for the moving classes, as A3 found: it is
@@ -62,8 +62,8 @@ not the one to use.
 ## Figure F4
 
 One panel per class (pedestrian, car), E[alpha] against the update rate (log axis), one line per loss p (the
-plateau closed form at the median d0 of the runs of that loss), the runs as dots, and the largest gap of a run
-to the closed form at its own d0 printed in the panel. Accept when the printed gap is below 5%. On the real runs
+plateau formula at the median d0 of the runs of that loss), the runs as dots, and the largest gap of a run
+to the formula at its own d0 printed in the panel. Accept when the printed gap is below 5%. On the real runs
 d0 differs between cells, so a dot can sit a little off its line even when its printed gap is small.
 
 ## Limits

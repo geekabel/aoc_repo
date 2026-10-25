@@ -10,4 +10,4 @@ it says so and stops without an error.
 | Script | Figure | Data |
 | --- | --- | --- |
 | `f03_ages.py` | F3, the age at the receiver on the single-link runs against the law of the note | the C1 runs: the folder given on the command line, or `AOC_C1_RESULTS`, or `~/aoc-sim/c1/latest` |
-| `f04_ealpha.py` | F4, E[alpha] against the update rate for several losses, closed form against the runs | the same |
+| `f04_ealpha.py` | F4, E[alpha] against the update rate for several losses, the formula of the note against the runs | the same |
