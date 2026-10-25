@@ -11,7 +11,7 @@ import pytest
 from scipy import integrate
 
 from aoc.analysis import ealpha
-from aoc.analysis.ealpha import CLASSES, AlphaIntegral, check_ealpha, compare_grid, compare_run, law_ealpha, law_noise, measured_ealpha
+from aoc.analysis.ealpha import CLASSES, AlphaIntegral, check_ealpha, compare_grid, compare_run, law_ealpha, law_noise, measured_ealpha, run_gaps
 from aoc.io.synthetic import Car, Scenario, write_run
 from aoc.theory import averages as a3
 from aoc.theory import reliability as a2
@@ -27,10 +27,29 @@ def has_matplotlib() -> bool:
     return True
 
 
-def link_scenario(period, loss, seed=0, duration=330.0):
+def link_scenario(period, loss, seed=0, duration=330.0, delay=0.02):
     cars = (Car("object", x=300.0, vx=10.0), Car("sender", x=260.0, vx=10.0), Car("receiver", x=80.0, vx=10.0))
-    return Scenario(cars, duration=duration, sensor_range=65.0, cpm_period=period, delay=0.02, loss=loss, seed=seed,
+    return Scenario(cars, duration=duration, sensor_range=65.0, cpm_period=period, delay=delay, loss=loss, seed=seed,
                     name="link-T%g-p%g" % (period, loss))
+
+
+def brute_force_ealpha(folder, par, warmup=10.0, step=0.001):
+    """E[alpha] by sampling the age of the newest received report every millisecond, without the gaps machinery."""
+    obs = pd.read_parquet(folder / "observations.parquet")
+    t_end = float(obs["t_sim"].astype(float).max())
+    received = obs[(obs["src"] == "v2x") & (obs["gt_match_id"] != obs["rx_station"])]
+    total, count = 0.0, 0
+    for _, rows in received.groupby(["rx_station", "tx_station", "gt_match_id"]):
+        rows = rows.sort_values("t_rx")
+        t_rx, t_meas = rows["t_rx"].to_numpy(dtype=float), rows["t_meas"].to_numpy(dtype=float)
+        times = np.arange(warmup, t_end, step)
+        newest = np.searchsorted(t_rx, times, side="right") - 1
+        first = int(np.searchsorted(t_rx, warmup, side="left"))
+        use = newest >= first                                                                               # after the first reception kept
+        ages = times[use] - t_meas[newest[use]]
+        total += float(np.asarray(a2.alpha(ages, *par)).sum())
+        count += int(use.sum())
+    return total / count
 
 
 def test_integral_of_alpha_against_quadrature():
@@ -64,6 +83,51 @@ def test_the_three_forms_and_the_noise():
     assert law_noise(1.0, 0.0, 640.0, np.array([0.02]), integral, draws=50) == pytest.approx(0.0, abs=1e-9)
     assert 0.0 < law_noise(1.0, 0.5, 640.0, np.array([0.02]), integral, draws=100) < 0.1
     assert np.isnan(law_noise(1.0, 0.5, 0.5, np.array([0.02]), integral))
+
+
+def test_run_gaps_pairs_each_age_at_reception_with_the_gap_that_follows(tmp_path):
+    write_run(link_scenario(0.5, 0.3, delay=(0.05, 0.25), duration=60.0), tmp_path / "aoc-link-0" / "parquet")
+    row, d0, gaps, window = run_gaps(tmp_path / "aoc-link-0" / "parquet", warmup=10.0)
+    obs = pd.read_parquet(tmp_path / "aoc-link-0" / "parquet" / "observations.parquet")
+    t_end = float(obs["t_sim"].astype(float).max())
+    by_hand_d0, by_hand_gaps = [], []
+    received = obs[(obs["src"] == "v2x") & (obs["gt_match_id"] != obs["rx_station"])]
+    for _, rows in received.groupby(["rx_station", "tx_station", "gt_match_id"], sort=True):
+        rows = rows.sort_values("t_rx")
+        rows = rows[rows["t_rx"] >= 10.0]
+        t_rx = rows["t_rx"].to_numpy(dtype=float)
+        by_hand_gaps.extend(np.diff(np.append(t_rx, t_end)).tolist())
+        by_hand_d0.extend((rows["t_rx"] - rows["t_meas"]).to_numpy(dtype=float).tolist())                   # the age at reception of each row
+    assert gaps.tolist() == pytest.approx(by_hand_gaps, abs=1e-9) and d0.tolist() == pytest.approx(by_hand_d0, abs=1e-9)
+    assert window == pytest.approx(sum(by_hand_gaps)) and 0.05 <= d0.min() and d0.max() <= 0.25 and d0.std() > 0.03
+    assert row["T"] == 0.5 and row["p"] == 0.3
+
+
+def test_measure_matches_a_brute_force_sample_with_a_variable_delay(tmp_path):
+    """The gaps machinery against a plain sample of the age every millisecond, on a stream whose d0 varies between 0.01 and 0.30 s."""
+    folder = tmp_path / "aoc-link-0" / "parquet"
+    write_run(link_scenario(0.5, 0.3, delay=(0.01, 0.30), duration=120.0, seed=4), folder)
+    rows = compare_run(folder, draws=20, classes={"car (moving)": CAR, "pedestrian": PED})
+    for r in rows:
+        assert r["measured"] == pytest.approx(brute_force_ealpha(folder, CLASSES[r["cls"]]), abs=5e-4)
+    # with d0 forced to zero the measure would be above by several percent: the pairing with d0 matters
+    row, d0, gaps, window = run_gaps(folder)
+    integral = AlphaIntegral(CAR, horizon=20.0)
+    assert measured_ealpha(d0, gaps, integral) < measured_ealpha(0.0 * d0, gaps, integral) - 0.02
+
+
+def test_fixed_delay_run_against_the_exact_form(tmp_path):
+    """No loss, delay 0.13 s (the d0 of the note): the measure equals the exact form at that d0 and differs from the one at d0 = 0."""
+    folder = tmp_path / "aoc-link-0" / "parquet"
+    write_run(link_scenario(1.0, 0.0, delay=0.13, duration=120.0), folder)
+    rows = compare_run(folder, draws=20, classes={"car (moving)": CAR})
+    assert rows[0]["d0_median"] == pytest.approx(0.13, abs=1e-4) and abs(rows[0]["gap_exact"]) < 0.002
+    at_zero = law_ealpha(1.0, 0.0, CAR, 0.0)["exact"]
+    assert abs(rows[0]["measured"] / at_zero - 1.0) > 0.03
+
+
+def test_classes_are_the_ones_of_the_note():
+    assert all(CLASSES[name] == a2.CLASSES[name][:4] for name in a2.CLASSES) and set(CLASSES) == set(a2.CLASSES)
 
 
 def test_one_link_against_the_law(tmp_path):

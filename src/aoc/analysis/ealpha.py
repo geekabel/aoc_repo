@@ -122,6 +122,8 @@ def compare_run(folder: str | os.PathLike, warmup: float = 10.0, draws: int = 10
                 d0_median=round(float(np.median(d0)), 4) if len(d0) else None)
     out = []
     horizon = float((d0 + gaps).max()) + 1.0 if len(gaps) else 1.0
+    if len(gaps) and row["T"] and row["p"]:
+        horizon = max(horizon, float(np.max(d0)) + row["T"] * np.ceil(np.log(1e-9) / np.log(row["p"])) + 1.0)   # the longest gap a draw can make
     for name, par in classes.items():
         entry = dict(base, cls=name, measured=None, exact=None, plateau=None, expo=None, gap_exact=None, gap_plateau=None, gap_expo=None, noise=None)
         if len(gaps) and row["T"] is not None and row["p"] is not None:
@@ -156,7 +158,9 @@ def check_ealpha(table: pd.DataFrame, max_rel: float = 0.05) -> list[str]:
     for _, row in table.iterrows():
         name = os.path.basename(os.path.dirname(row["folder"])) or row["folder"]
         if row["measured"] is None or (isinstance(row["measured"], float) and np.isnan(row["measured"])):
-            problems.append("%s: no reception about an object the receiver does not see (or T and p unknown)" % name)
+            message = "%s: no reception about an object the receiver does not see (or T and p unknown)" % name
+            if message not in problems:
+                problems.append(message)
             continue
         limit = max(max_rel, 3.0 * number(row["noise"]))
         if abs(row["gap_exact"]) > limit:
@@ -211,11 +215,11 @@ def draw(table: pd.DataFrame, path: str, panels: tuple = PANELS) -> None:
         ax.set_xlabel("update rate (Hz)")
         ax.set_title("%s, d0 = %.0f ms" % (name, 1000 * float(part["d0_median"].median())), fontsize=8)
         ax.grid(True, lw=0.3, alpha=0.5)
-        ax.text(0.03, 0.05, "largest gap to the closed form: %.1f%%" % (100 * worst), transform=ax.transAxes, fontsize=7)
+        ax.text(0.03, 0.05, "largest gap of a run to the closed form at its own d0: %.1f%%" % (100 * worst), transform=ax.transAxes, fontsize=7)
     axes[0].set_ylabel("E[alpha]")
     axes[-1].legend(loc="lower right", frameon=False, title="lines: closed form, dots: runs", title_fontsize=7)
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=200)
     plt.close(fig)
 
 
@@ -270,6 +274,11 @@ def main(argv=None) -> int:
     print("  measured value over runs of this length drawn from the law.")
     if drawn:
         print("  figure:              %s" % os.path.abspath(args.out))
+    valid = table.dropna(subset=["gap_plateau"])
+    if len(valid):
+        within = int((valid["gap_plateau"].abs() <= 0.05).sum())
+        print("  H2:                  %d of %d run and class pairs within 5%% of the plateau closed form (largest gap %.1f%%)"
+              % (within, len(valid), 100 * valid["gap_plateau"].abs().max()))
     print("  result:              %s%s" % ("PASS" if not problems else "FAIL", "" if not problems else "\n    " + "\n    ".join(problems)))
     return 0 if not problems else 3
 

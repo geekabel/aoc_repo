@@ -50,18 +50,21 @@ and the noise; then a line over the runs. Options: `--warmup` (10 s), `--max-rel
 
 ## On a synthetic grid
 
-The 16 cells of the plan as synthetic streams (the same three cars, delay 0.02 s, 330 s): PASS for the five
-classes. The gap to the exact law is within the noise on every run (largest 4.3%, on the thinnest cell T = 1 s,
-p = 0.3, for the truck). The gap to the plateau closed form is within 5% on every run and every class (largest
-4.0%), with a mean of -0.2 to -1.2% per class: the surrogate is slightly above the exact law, by 1.1% for the
-parked vehicle whose alpha at age 0 is 0.989 and not 1. The exponential surrogate is 3 to 23% too low for the
-moving classes, as A3 found: it is not the one to use.
+The 16 cells of the plan as synthetic streams (the same three cars, delay 0.02 s, 330 s, seeds 0 to 15 in the
+order of the grid): PASS for the five classes. The gap to the exact law is within three times the noise on every
+run; the largest is 5.2% (the car at T = 1 s, p = 0.3, noise 2.1%) and 4.3% for the truck on the same cell. The
+gap to the plateau closed form is within 5% on every run and every class (largest 4.7%, the same cell), with a
+mean of -0.2 to -1.2% per class: the surrogate is slightly above the exact law, by 1.1% for the parked vehicle
+whose alpha at age 0 is 0.989 and not 1. With one seed per cell this is one seed away from a run above 5%; the
+noise columns say so. The exponential surrogate is 1 to 23% too low for the moving classes, as A3 found: it is
+not the one to use.
 
 ## Figure F4
 
 One panel per class (pedestrian, car), E[alpha] against the update rate (log axis), one line per loss p (the
-plateau closed form at the median d0 of the runs of that loss), the runs as dots, and the largest gap to the closed
-form printed in the panel. Accept when the printed gap is below 5%.
+plateau closed form at the median d0 of the runs of that loss), the runs as dots, and the largest gap of a run
+to the closed form at its own d0 printed in the panel. Accept when the printed gap is below 5%. On the real runs
+d0 differs between cells, so a dot can sit a little off its line even when its printed gap is small.
 
 ## Limits
 
