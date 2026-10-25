@@ -3,7 +3,7 @@
 <!-- Written by `python -m aoc.io.schema`. Do not edit by hand: change OBS_COLUMNS in src/aoc/io/export.py. -->
 
 One row of `observations.parquet` is one object that one vehicle gets at one time, either from its
-own sensors or from a received CPM. Exporter version 1.1.
+own sensors or from a received CPM. Exporter version 1.2.
 
 The first 27 columns are the ones of the Plan, in the same order. The other 6
 were added during task A8.

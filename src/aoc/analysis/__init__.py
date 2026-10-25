@@ -5,6 +5,8 @@ Written:
   motion       how the objects of a run really move, measured on the ground truth (support for B5)
   metrics      the metrics of a run for the five ways of the plan: network, awareness, RMSE, calibration, coverage,
                stale and ghost rates, time to confident (B8, command ``aoc-evaluate``)
+  link         the single-link runs: read the grid of exported runs and check each one against its period and its loss
+               (C1, command ``aoc-link``)
 
 Planned: the results database over the runs (task D4).
 """

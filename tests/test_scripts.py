@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 ROOT = pathlib.Path(__file__).parents[1]
-SCRIPTS = ["a6_install.sh", "a7_cp_demo.sh", "a8_logger.sh"]
+SCRIPTS = ["a6_install.sh", "a7_cp_demo.sh", "a8_logger.sh", "c1_link.sh"]
 
 
 def test_built_scripts_are_up_to_date(capsys):

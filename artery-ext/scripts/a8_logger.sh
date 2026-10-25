@@ -35,7 +35,7 @@
 # Tested on a clean Ubuntu 22.04 with the A6 installation (x86_64).
 # =============================================================================
 
-A8_SCRIPT_VERSION="1.1"
+A8_SCRIPT_VERSION="1.2"
 
 # ----------------------------------------------------------------------------
 # 0. Start from a clean environment (conda and old OMNeT++ paths break the tools).
@@ -150,9 +150,10 @@ put_file() {
 write_sources() {
     mkdir -p "$EXT_DIR" || return 1
     put_file "$EXT_DIR/CMakeLists.txt" <<'A8_FILE_EOF' || return 1
-# AoC extension of Artery: a logger for collective perception experiments.
+# AoC extension of Artery: a logger for collective perception experiments (A8)
+# and a CP service with a controlled loss of received CPMs (C1).
 # Added to the build by one line in scenarios/CMakeLists.txt: add_subdirectory(aoc)
-add_artery_feature(aoc AocLogger.cc)
+add_artery_feature(aoc AocLogger.cc AocCpService.cc)
 target_link_libraries(aoc PUBLIC envmod)
 A8_FILE_EOF
     put_file "$EXT_DIR/AocLogger.ned" <<'A8_FILE_EOF' || return 1
@@ -164,6 +165,7 @@ A8_FILE_EOF
 //  cpm_tx.csv   one row per CPM sent
 //  cpm_obj.csv  one row per perceived object of each CPM sent
 //  cpm_rx.csv   one row per CPM received
+//  cpm_drop.csv one row per CPM dropped on purpose by AocCpService (task C1)
 //  cbr.csv      channel load measured by each vehicle
 //  nodes.csv    vehicles with a middleware: module, SUMO id, station id
 //  run.csv      configuration name, run number, seed set
@@ -229,7 +231,7 @@ public:
     void handleMessage(omnetpp::cMessage*) override;
     void finish() override;
 
-    // CpmSent, CpmReceived, EnvironmentModel.refresh
+    // CpmSent, CpmReceived, CpmDropped, EnvironmentModel.refresh
     void receiveSignal(omnetpp::cComponent*, omnetpp::simsignal_t, omnetpp::cObject*, omnetpp::cObject*) override;
     // ChannelLoad
     void receiveSignal(omnetpp::cComponent*, omnetpp::simsignal_t, double, omnetpp::cObject*) override;
@@ -245,6 +247,7 @@ private:
     const Node& node(omnetpp::cComponent* source);
     void logCpmSent(omnetpp::cComponent* source, const artery::CpObject&);
     void logCpmReceived(omnetpp::cComponent* source, const artery::CpObject&);
+    void logCpmDropped(omnetpp::cComponent* source, const artery::CpObject&);
     void dumpTruth();
     void dumpLocal();
     void closeAll();
@@ -259,8 +262,8 @@ private:
     std::unordered_map<int, Node> mNodes;   // key: module id of the host
     std::unordered_map<int, omnetpp::SimTime> mLastCbr;   // key: module id of the host
     std::string mDir;
-    std::ofstream mTruth, mLocal, mTx, mObj, mRx, mCbr, mNodesFile;
-    unsigned long mRowsTruth = 0, mRowsLocal = 0, mRowsTx = 0, mRowsObj = 0, mRowsRx = 0, mRowsCbr = 0;
+    std::ofstream mTruth, mLocal, mTx, mObj, mRx, mDrop, mCbr, mNodesFile;
+    unsigned long mRowsTruth = 0, mRowsLocal = 0, mRowsTx = 0, mRowsObj = 0, mRowsRx = 0, mRowsDrop = 0, mRowsCbr = 0;
 };
 
 #endif /* AOC_LOGGER_H_ */
@@ -272,6 +275,7 @@ A8_FILE_EOF
  *
  * The logger is a passive listener at the top of the network:
  *  - "CpmSent" and "CpmReceived" are emitted by artery.envmod.service.CpService
+ *  - "CpmDropped" is emitted by AocCpService when it loses a received CPM on purpose (task C1)
  *  - "EnvironmentModel.refresh" is emitted by the global environment model at each SUMO step.
  *    Listeners of a module are called before the listeners of its parent, so the local
  *    environment models of the vehicles are already updated when the logger is called.
@@ -313,10 +317,11 @@ namespace
 
 const simsignal_t sigCpmSent = cComponent::registerSignal("CpmSent");
 const simsignal_t sigCpmReceived = cComponent::registerSignal("CpmReceived");
+const simsignal_t sigCpmDropped = cComponent::registerSignal("CpmDropped");
 const simsignal_t sigRefresh = cComponent::registerSignal("EnvironmentModel.refresh");
 const simsignal_t sigChannelLoad = cComponent::registerSignal("ChannelLoad");
 
-const char* const kLoggerVersion = "1.0";
+const char* const kLoggerVersion = "1.1";
 
 // simulation time with microsecond digits, the same text in every file
 std::string T(const SimTime& t)
@@ -432,6 +437,7 @@ void AocLogger::initialize()
     openFile(mObj, mDir, "cpm_obj.csv",
         "station_id,reference_time_ms,obj_index,object_id,meas_delta_ms,x_cm,y_cm,object_age_ms,quality,has_velocity,speed_cms,direction_raw,class_label,sensor_ids");
     openFile(mRx, mDir, "cpm_rx.csv", "t_rx,rx_node,rx_id,station_id,reference_time_ms,rx_x,rx_y");
+    openFile(mDrop, mDir, "cpm_drop.csv", "t_drop,rx_node,rx_id,station_id,reference_time_ms");
     openFile(mCbr, mDir, "cbr.csv", "t,node,node_id,cbr");
     openFile(mNodesFile, mDir, "nodes.csv", "t_first,node,node_id,station_id,module");
 
@@ -451,6 +457,7 @@ void AocLogger::initialize()
     cModule* sys = getSystemModule();
     sys->subscribe(sigCpmSent, this);
     sys->subscribe(sigCpmReceived, this);
+    sys->subscribe(sigCpmDropped, this);
     sys->subscribe(sigRefresh, this);
     if (mLogChannelLoad) {
         sys->subscribe(sigChannelLoad, this);
@@ -473,6 +480,7 @@ void AocLogger::unsubscribeAll()
     if (sys) {
         sys->unsubscribe(sigCpmSent, this);
         sys->unsubscribe(sigCpmReceived, this);
+        sys->unsubscribe(sigCpmDropped, this);
         sys->unsubscribe(sigRefresh, this);
         if (sys->isSubscribed(sigChannelLoad, this)) {
             sys->unsubscribe(sigChannelLoad, this);
@@ -482,7 +490,7 @@ void AocLogger::unsubscribeAll()
 
 void AocLogger::closeAll()
 {
-    for (std::ofstream* f : {&mTruth, &mLocal, &mTx, &mObj, &mRx, &mCbr, &mNodesFile}) {
+    for (std::ofstream* f : {&mTruth, &mLocal, &mTx, &mObj, &mRx, &mDrop, &mCbr, &mNodesFile}) {
         if (f->is_open()) {
             f->close();
         }
@@ -501,6 +509,7 @@ void AocLogger::finish()
     recordScalar("aocCpmTxRows", mRowsTx);
     recordScalar("aocCpmObjRows", mRowsObj);
     recordScalar("aocCpmRxRows", mRowsRx);
+    recordScalar("aocCpmDropRows", mRowsDrop);
     EV_INFO << "AocLogger wrote " << mDir << endl;
 }
 
@@ -554,6 +563,10 @@ void AocLogger::receiveSignal(cComponent* source, simsignal_t signal, cObject* o
     } else if (signal == sigCpmReceived) {
         if (auto cpm = dynamic_cast<artery::CpObject*>(obj)) {
             logCpmReceived(source, *cpm);
+        }
+    } else if (signal == sigCpmDropped) {
+        if (auto cpm = dynamic_cast<artery::CpObject*>(obj)) {
+            logCpmDropped(source, *cpm);
         }
     }
 }
@@ -671,6 +684,16 @@ void AocLogger::logCpmReceived(cComponent* source, const artery::CpObject& objec
     ++mRowsRx;
 }
 
+void AocLogger::logCpmDropped(cComponent* source, const artery::CpObject& object)
+{
+    const Node& n = node(source);
+    const artery::Cpm& cpm = object.asn1();
+    uint64_t reference = 0;
+    asn_INTEGER2uint64(&cpm->payload.managementContainer.referenceTime, &reference);
+    mDrop << T(simTime()) << ',' << n.name << ',' << n.traciId << ',' << cpm->header.stationId << ',' << reference << '\n';
+    ++mRowsDrop;
+}
+
 void AocLogger::dumpTruth()
 {
     // every object of the global environment model; the search area covers the whole map
@@ -725,6 +748,118 @@ void AocLogger::dumpLocal()
     mLastLocalDump = now;
 }
 A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.ned" <<'A8_FILE_EOF' || return 1
+//
+// AocCpService: the collective perception service of Artery, plus a controlled loss of received CPMs.
+//
+// Each received CPM is dropped with probability dropProbability, before the service reads it.
+// The drop uses the random number generator of the module, so a seed set gives the same drops.
+// A dropped CPM is announced with the signal CpmDropped, which the AoC logger writes to cpm_drop.csv.
+// With dropProbability = 0 the service behaves exactly like CpService.
+//
+// Used by the single-link validation scenario (task C1): a fixed message period (minInterval = maxInterval,
+// withDccRestriction = false, objectInclusionConfig = 0) and a known loss, so that the age law of the
+// theory note can be checked against the logs.
+//
+import artery.envmod.service.CpService;
+
+simple AocCpService extends CpService
+{
+    parameters:
+        @class(artery::AocCpService);
+        @signal[CpmDropped](type=CpObject);
+        double dropProbability = default(0.0);     // 0 to 1 (excluded): each received CPM is lost with this probability
+}
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.h" <<'A8_FILE_EOF' || return 1
+/*
+ * AocCpService: CpService with a controlled loss of received CPMs (task C1 of the AoC plan).
+ * Licensed under GPLv2 like Artery.
+ */
+#ifndef AOC_CP_SERVICE_H_
+#define AOC_CP_SERVICE_H_
+
+#include "artery/envmod/service/CpService.h"
+
+namespace artery
+{
+
+class AocCpService : public CpService
+{
+public:
+    void initialize() override;
+    void finish() override;
+    void indicate(const vanetza::btp::DataIndication&, std::unique_ptr<vanetza::UpPacket>) override;
+
+private:
+    double mDropProbability = 0.0;
+    unsigned long mDropped = 0;
+    unsigned long mPassed = 0;
+};
+
+}  // namespace artery
+
+#endif /* AOC_CP_SERVICE_H_ */
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.cc" <<'A8_FILE_EOF' || return 1
+/*
+ * AocCpService: CpService with a controlled loss of received CPMs (task C1 of the AoC plan).
+ * Licensed under GPLv2 like Artery.
+ *
+ * The loss is drawn per received CPM, independently, with the random number generator of the
+ * module: the same seed set gives the same drops. A dropped CPM never reaches the service, so the
+ * receiver behaves exactly as if the radio had lost it. The signal CpmDropped tells the logger.
+ */
+#include "AocCpService.h"
+
+#include "artery/application/Asn1PacketVisitor.h"
+#include "artery/envmod/service/CpObject.h"
+
+#include <omnetpp/cexception.h>
+
+using namespace omnetpp;
+
+namespace artery
+{
+
+Define_Module(AocCpService)
+
+static const simsignal_t scSignalCpmDropped = cComponent::registerSignal("CpmDropped");
+
+void AocCpService::initialize()
+{
+    CpService::initialize();
+    mDropProbability = par("dropProbability");
+    if (!(mDropProbability >= 0.0 && mDropProbability < 1.0)) {
+        throw cRuntimeError("AocCpService: dropProbability must be between 0 (included) and 1 (excluded), not %g", mDropProbability);
+    }
+}
+
+void AocCpService::finish()
+{
+    recordScalar("aocCpmDropped", mDropped);
+    recordScalar("aocCpmPassed", mPassed);
+    CpService::finish();
+}
+
+void AocCpService::indicate(const vanetza::btp::DataIndication& ind, std::unique_ptr<vanetza::UpPacket> packet)
+{
+    if (mDropProbability > 0.0 && uniform(0.0, 1.0) < mDropProbability) {
+        ++mDropped;
+        Asn1PacketVisitor<Cpm> visitor;
+        const Cpm* cpm = boost::apply_visitor(visitor, *packet);
+        if (cpm && cpm->validate()) {
+            CpObject obj = visitor.shared_wrapper;
+            emit(scSignalCpmDropped, &obj);
+        }
+        return;
+    }
+    ++mPassed;
+    CpService::indicate(ind, std::move(packet));
+}
+
+}  // namespace artery
+A8_FILE_EOF
 }
 
 write_exporter() {
@@ -742,6 +877,7 @@ Output, in <input>/parquet:
   cpm_tx.parquet        one row per CPM sent
   cpm_obj.parquet       one row per object of each CPM sent, with its true identity
   cpm_rx.parquet        one row per CPM received, matched to the CPM sent
+  cpm_drop.parquet      one row per CPM dropped on purpose (AocCpService, task C1), when cpm_drop.csv exists
   local.parquet         one row per (vehicle, sensor, object) detection
   observations.parquet  the table of the AoC plan: one row per object that a vehicle gets,
                         from its own sensors (one row per step) or from a CPM (one row per reception)
@@ -764,7 +900,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-EXPORT_VERSION = "1.1"
+EXPORT_VERSION = "1.2"
 
 # station types of ETSI (vanetza::geonet::StationType)
 STATION_TYPES = {0: "unknown", 1: "pedestrian", 2: "cyclist", 3: "moped", 4: "motorcycle", 5: "passenger_car", 6: "bus",
@@ -856,6 +992,17 @@ def cpm_class(label):
     return kind
 
 
+def iteration_variables(text):
+    """The iteration variables of OMNeT++ as a dictionary: '$T=0.5s, $p=0.3' gives {'T': '0.5s', 'p': '0.3'}."""
+    out = {}
+    for part in str(text or "").split(","):
+        part = part.strip().lstrip("$")
+        if "=" in part:
+            name, value = part.split("=", 1)
+            out[name.strip()] = value.strip()
+    return out
+
+
 def dcc_state(cbr):
     idx = np.searchsorted(DCC_LIMITS, cbr, side="right")
     out = np.array(DCC_STATES, dtype=object)[np.clip(idx, 0, len(DCC_STATES) - 1)]
@@ -895,6 +1042,7 @@ def main():
         seed = int(run.get("seed_set", "0") or 0)
     except ValueError:
         seed = 0
+    variables = iteration_variables(run.get("iteration_vars", ""))
 
     truth = read_csv(run_dir, "truth.csv", {"obj_id": "string", "station_type": "Int64"})
     nodes = read_csv(run_dir, "nodes.csv", {"node": "string", "node_id": "string", "station_id": "Int64", "module": "string"})
@@ -906,6 +1054,9 @@ def main():
     local = read_csv(run_dir, "local.csv", {"node": "string", "node_id": "string", "sensor": "string", "category": "string",
                                             "obj_id": "string", "track_id": "int64"})
     cbr = read_csv(run_dir, "cbr.csv", {"node": "string", "node_id": "string"})
+    drop = None
+    if os.path.isfile(os.path.join(run_dir, "cpm_drop.csv")):
+        drop = read_csv(run_dir, "cpm_drop.csv", {"rx_node": "string", "rx_id": "string", "station_id": "int64", "reference_time_ms": "int64"})
 
     checks = {}
     if truth.empty:
@@ -1034,6 +1185,13 @@ def main():
         pdr[rows] = np.where(n_sent > 0, n_got / np.maximum(n_sent, 1), np.nan)
     rx["pdr_window"] = np.clip(pdr, 0.0, 1.0)
 
+    # ---------------------------------------------------------------- CPMs dropped on purpose (task C1)
+    if drop is not None:
+        drop = drop.merge(tx[key + ["t_tx", "tx_id"]], on=key, how="left", validate="many_to_one")
+        checks["cpm_drop_rows"] = int(len(drop))
+        checks["cpm_drop_matched_to_a_sent_cpm"] = int(drop["t_tx"].notna().sum())
+        drop = drop.sort_values(["t_drop", "rx_id"], kind="stable").reset_index(drop=True)
+
     # last channel busy ratio of the receiver
     cbr = cbr.drop_duplicates(["node_id", "t"], keep="last").sort_values("t", kind="stable")
 
@@ -1108,6 +1266,8 @@ def main():
     write_parquet(tx, os.path.join(out, "cpm_tx.parquet"))
     write_parquet(obj_out, os.path.join(out, "cpm_obj.parquet"))
     write_parquet(rx, os.path.join(out, "cpm_rx.parquet"))
+    if drop is not None:
+        write_parquet(drop, os.path.join(out, "cpm_drop.parquet"))
     write_parquet(local, os.path.join(out, "local.parquet"))
     write_parquet(nodes, os.path.join(out, "nodes.parquet"))
     write_parquet(obs, os.path.join(out, "observations.parquet"), {c: d for c, _, d in OBS_COLUMNS})
@@ -1117,9 +1277,11 @@ def main():
     summary = {
         "export_version": EXPORT_VERSION, "logger_version": run.get("logger_version", ""), "run_dir": run_dir, "out_dir": out,
         "run_id": run_id, "config": run.get("config", ""), "seed": seed, "weather": args.weather,
+        "iteration_vars": run.get("iteration_vars", ""), "variables": variables,
         "t_first_s": float(steps[0]), "t_last_s": float(steps[-1]), "steps": int(len(steps)),
         "objects_true": int(truth["obj_id"].nunique()), "vehicles_with_middleware": int(nodes["node_id"].nunique()),
         "rows": {"truth": int(len(truth)), "cpm_tx": int(len(tx)), "cpm_obj": int(len(obj)), "cpm_rx": int(len(rx)),
+                 "cpm_drop": int(len(drop)) if drop is not None else None,
                  "local": int(len(local)), "observations": int(len(obs)), "observations_v2x": v2x_rows,
                  "observations_local": int(len(obs)) - v2x_rows},
         "objects_per_cpm_mean": round(float(tx["n_objects"].mean()), 2) if len(tx) else None,
@@ -1138,6 +1300,8 @@ def main():
         problems.append("no CPM was received")
     if checks["cpm_rx_matched_to_a_sent_cpm"] < checks["cpm_rx_rows"]:
         problems.append("some received CPMs have no sent CPM")
+    if drop is not None and checks["cpm_drop_matched_to_a_sent_cpm"] < checks["cpm_drop_rows"]:
+        problems.append("some dropped CPMs have no sent CPM")
     if checks["cpm_obj_rows"] and checks["cpm_obj_matched_within_2cm"] < 0.999 * checks["cpm_obj_rows"]:
         problems.append("some CPM objects have no true object within 2 cm")
     step_rows = local["category"] != "CA"
@@ -1156,7 +1320,11 @@ def main():
     print("  run:                 %s (config %s, seed set %d)" % (run_id, summary["config"], seed))
     print("  time covered:        %.1f s to %.1f s, %d steps" % (steps[0], steps[-1], len(steps)))
     print("  true objects:        %d (%s)" % (summary["objects_true"], ", ".join("%d %s" % (v, k) for k, v in summary["classes_true"].items())))
-    print("  CPMs:                %d sent, %d received, %.1f objects per CPM on average" % (r["cpm_tx"], r["cpm_rx"], summary["objects_per_cpm_mean"] or 0))
+    dropped = "" if r["cpm_drop"] is None else ", %d dropped on purpose" % r["cpm_drop"]
+    print("  CPMs:                %d sent, %d received, %.1f objects per CPM on average%s"
+          % (r["cpm_tx"], r["cpm_rx"], summary["objects_per_cpm_mean"] or 0, dropped))
+    if variables:
+        print("  variables:           %s" % ", ".join("%s = %s" % kv for kv in variables.items()))
     print("  observations:        %d rows = %d from CPMs + %d from on-board sensors" % (r["observations"], r["observations_v2x"], r["observations_local"]))
     print("  sources:             " + ", ".join("%s %d" % (k, v) for k, v in summary["sources"].items()))
     a = summary["age_v2x_s"]

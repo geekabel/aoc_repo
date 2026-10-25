@@ -2,13 +2,15 @@
 """Builds the self-contained shell scripts of artery-ext/scripts from their templates.
 
   a7_cp_demo.sh   template a7_cp_demo.template.sh  +  a7_cpm_logs.py
-  a8_logger.sh    template a8_logger.template.sh   +  the logger sources (artery-ext/aoc),
+  a8_logger.sh    template a8_logger.template.sh   +  the AoC sources (artery-ext/aoc),
                   the two config files (artery-ext/config) and the exporter (src/aoc/io/export.py)
+  c1_link.sh      template c1_link.template.sh     +  the AoC sources, the single-link scenario (artery-ext/link),
+                  its services and sensors files, the exporter and the link check (src/aoc/analysis/link.py)
 
 A script holds a copy of each file it needs, so one file is enough on the workstation.
 The sources stay in one place in this repository. After a change of a source file, run
 
-    python artery-ext/tools/build_scripts.py            writes the two scripts
+    python artery-ext/tools/build_scripts.py            writes the three scripts
     python artery-ext/tools/build_scripts.py --check    writes nothing, fails if a script is out of date
 
 Needs only the Python standard library.
@@ -40,8 +42,16 @@ def build_a7():
 def build_a8():
     template = (TOOLS / "a8_logger.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "A8_FILE_EOF"), template)
-    if n != 8:
-        raise SystemExit(f"a8_logger.template.sh: expected 8 placeholders, found {n}")
+    if n != 11:
+        raise SystemExit(f"a8_logger.template.sh: expected 11 placeholders, found {n}")
+    return text
+
+
+def build_c1():
+    template = (TOOLS / "c1_link.template.sh").read_text(encoding="utf-8")
+    text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C1_FILE_EOF"), template)
+    if n != 17:
+        raise SystemExit(f"c1_link.template.sh: expected 17 placeholders, found {n}")
     return text
 
 
@@ -50,7 +60,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="write nothing; exit with 1 if a script is out of date")
     args = ap.parse_args(argv)
     stale = []
-    for name, build in (("a7_cp_demo.sh", build_a7), ("a8_logger.sh", build_a8)):
+    for name, build in (("a7_cp_demo.sh", build_a7), ("a8_logger.sh", build_a8), ("c1_link.sh", build_c1)):
         text = build()
         target = SCRIPTS / name
         current = target.read_text(encoding="utf-8") if target.exists() else None

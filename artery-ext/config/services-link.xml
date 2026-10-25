@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The services of the single-link scenario (task C1): CAMs, and the CP service with a controlled loss. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+	</service>
+</services>

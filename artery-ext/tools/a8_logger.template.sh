@@ -35,7 +35,7 @@
 # Tested on a clean Ubuntu 22.04 with the A6 installation (x86_64).
 # =============================================================================
 
-A8_SCRIPT_VERSION="1.1"
+A8_SCRIPT_VERSION="1.2"
 
 # ----------------------------------------------------------------------------
 # 0. Start from a clean environment (conda and old OMNeT++ paths break the tools).
@@ -163,6 +163,15 @@ A8_FILE_EOF
 A8_FILE_EOF
     put_file "$EXT_DIR/AocLogger.cc" <<'A8_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocLogger.cc@@
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.ned" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocCpService.ned@@
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.h" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocCpService.h@@
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocCpService.cc" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocCpService.cc@@
 A8_FILE_EOF
 }
 

@@ -30,6 +30,7 @@ aoc-combine = "aoc.fusion.combination:main"
 aoc-kinematics = "aoc.fusion.kinematics:main"
 aoc-evaluate = "aoc.analysis.metrics:main"
 aoc-synthetic = "aoc.io.synthetic:main"
+aoc-link = "aoc.analysis.link:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
