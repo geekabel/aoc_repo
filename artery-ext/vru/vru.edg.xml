@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_vru_scenario.py. Do not edit by hand. -->
+<!-- Two lanes per direction at 50 km/h and a sidewalk on the right of each edge (lane 0);
+     the alley is for pedestrians only. -->
+<edges>
+    <edge id="N0C" from="N0" to="C" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="CN0" from="C" to="N0" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="E0C" from="E0" to="C" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="CE0" from="C" to="E0" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="W0C" from="W0" to="C" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="CW0" from="C" to="W0" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="S0S1" from="S0" to="S1" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="S1S0" from="S1" to="S0" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="S1C" from="S1" to="C" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="CS1" from="C" to="S1" priority="2" numLanes="2" speed="13.89" sidewalkWidth="2.0"/>
+    <edge id="alley" from="A" to="S1" priority="1" numLanes="1" width="3.0" speed="1.5" allow="pedestrian" spreadType="center"/>
+</edges>

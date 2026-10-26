@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The occluded-VRU event (task C5, scenario E1 of the plan). The road is written by make_vru_scenario.py:
+a four-leg signalized intersection C, two lanes per direction, a sidewalk on the right of each edge (lane 0),
+a zebra crossing at S1, 45 m south of C, on the south leg, and an alley for pedestrians that comes out of the
+buildings on the east side, right at the crossing.
+
+Who is where (times in s; the pedestrian comes out of the alley at about t = 17 and is on the crossing from
+t = 19 to t = 29; the numbers come from a SUMO run of this file and from the lines of sight computed on it):
+
+    truck     stopped on the right car lane of the south leg (S0S1_1), its front 5 m before the zebra crossing.
+              It hides the east part of the crossing from the cars that come from the south on the left lane.
+    ped       walks west in the alley (hidden by the buildings), comes out on the sidewalk at about t = 17,
+              crosses to the west (12.8 m at about 1.25 m/s), then walks south on the west sidewalk.
+    ego       comes from the south on the left lane (S0S1_2) at 50 km/h. It is 74 m from the pedestrian when
+              the pedestrian comes out of the alley, has a line of sight for about a second, then the truck
+              hides the pedestrian for about 2.6 s (from 60 m down to 24 m), and the pedestrian comes out
+              from behind the truck in the middle of the right lane, 23 m ahead of the ego.
+    helper_a  comes from the north on the left lane. It sees the pedestrian from the alley exit on, stops
+              at the crossing and lets the pedestrian pass.
+    helper_b  drives about 8 s ahead of the ego on the same lane: it is past the intersection when the
+              pedestrian comes out and sees it behind itself (360-degree sensor) until it is 100 m away.
+              It slows down at the crossing at t = 13 because SUMO sees the pedestrian coming in the alley.
+    helper_c  comes from the north 5 s behind helper_a.
+    flows     light traffic on the east-west street, one car every 6 s each way. The corner buildings hide
+              the crossing from them until they reach the stop line; from there the lidar sees it.
+              They run the CA service only (see the services files), so they send no CPM.
+
+The cars keep their lane (lcKeepRight = 0, lcSpeedGain = 0), have no driver imperfection (sigma = 0) and no
+speed deviation, so that the event is the same in every run. The seed of a run changes the radio only.
+SUMO makes the cars brake for the pedestrian whatever their sensors see; the perception is in the logs.
+Which cars run the CP service is set in omnetpp.ini and the services files: the ego and the configured
+helpers only. The truck sees the pedestrian too, from 15 m, but sends no CPM: it is the obstacle, not a helper.
+The traffic light program is the one netconvert 1.21 writes: north-south green for the first 37 s, which
+the event needs (the pilot checks the timeline, so another program would show up as a FAIL).
+-->
+<routes>
+    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
+           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
+    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
+           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
+    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
+
+    <route id="northbound" edges="S0S1 S1C CN0"/>
+    <route id="southbound" edges="N0C CS1 S1S0"/>
+    <route id="eastbound" edges="W0C CE0"/>
+    <route id="westbound" edges="E0C CW0"/>
+
+    <!-- the truck is inserted at its stop position, already standing -->
+    <vehicle id="truck" type="truck" route="northbound" depart="0.0" departLane="1" departPos="246.8" departSpeed="0">
+        <stop lane="S0S1_1" endPos="246.8" duration="600"/>
+    </vehicle>
+
+    <!-- the pedestrian: out of the alley, the crossing, then the west sidewalk towards the south -->
+    <person id="ped" type="ped" depart="0.0" departPos="20.0">
+        <walk from="alley" to="S1S0" arrivalPos="80.0"/>
+    </person>
+
+    <!-- the helpers and the ego, in the order of their departure (SUMO wants the file sorted by departure) -->
+    <vehicle id="helper_a" type="car" route="southbound" depart="0.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <flow id="east" type="car" route="eastbound" begin="0" end="600" period="6" departLane="best" departSpeed="max"/>
+    <vehicle id="helper_b" type="car" route="northbound" depart="0.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
+    <flow id="west" type="car" route="westbound" begin="3" end="600" period="6" departLane="best" departSpeed="max"/>
+    <vehicle id="ego" type="car" route="northbound" depart="3.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
+    <vehicle id="helper_c" type="car" route="southbound" depart="5.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+</routes>

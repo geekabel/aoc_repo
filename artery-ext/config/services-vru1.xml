@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Occluded-VRU runs (task C5): the CP service runs on the ego and on one helper (helper_a). The other cars (the truck, the other helpers,
+     the traffic on the cross street) run CA only, so that the CPMs about the pedestrian come from the configured
+     helpers alone. The name filter of Artery matches the whole SUMO id. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="artery.envmod.service.CpService" name="CP">
+		<listener port="2009" />
+		<filters>
+			<name pattern="ego|helper_a" />
+		</filters>
+	</service>
+</services>
