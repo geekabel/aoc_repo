@@ -75,6 +75,12 @@ def fake_run(folder: pathlib.Path, helpers: int = 2, seed: int = 0, gap: tuple =
                                 vx=p["vx"], vy=p["vy"], t_meas=tt, t_rx=tt + 0.03, age=0.03, gt_match_id="ped", sensor=pd.NA, gt_dist=0.0, t_pos=tt))
     columns = ["t_sim", "rx_station", "src", "tx_station", "obj_id", "class", "x", "y", "vx", "vy", "t_meas", "t_rx", "age",
                "gt_match_id", "sensor", "gt_dist", "t_pos"]
+    # the ego's own CPMs about the pedestrian, received by helper_a: not a sender for the ego
+    for tt in np.round(np.arange(20.5, 30.0, 0.5), 1):
+        if pedestrian:
+            p = pos.loc[("ped", tt)]
+            obs.append(dict(t_sim=tt + 0.03, rx_station="helper_a", src="v2x", tx_station="ego", obj_id="7", **{"class": "pedestrian"}, x=p["x"],
+                            y=p["y"], vx=p["vx"], vy=p["vy"], t_meas=tt, t_rx=tt + 0.03, age=0.03, gt_match_id="ped", sensor=pd.NA, gt_dist=0.0, t_pos=tt))
     obs = pd.DataFrame(obs, columns=columns)
     obs["tx_station"] = obs["tx_station"].astype("string")
     obs["sensor"] = obs["sensor"].astype("string")

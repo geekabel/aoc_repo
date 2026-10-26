@@ -25,8 +25,9 @@ The checks of one run (PASS when all hold):
   - during the gap, at least one of the configured helpers sees the pedestrian at four steps out of five;
   - during the gap, the ego receives at least one CPM row about the pedestrian; the class of these rows is
     pedestrian;
-  - the senders of CPMs about the pedestrian over the run are configured helpers only (the truck and the other
-    cars run no CP service), and a helper whose CP service is off sends no CPM at all.
+  - the senders of the CPMs about the pedestrian that the ego received over the run are configured helpers only
+    (the truck and the other cars run no CP service; the ego's own CPMs go to the other cars and do not count),
+    and a helper whose CP service is off sends no CPM at all.
 """
 from __future__ import annotations
 
@@ -180,8 +181,9 @@ def read_vru_run(folder: str | os.PathLike, ego: str = "ego") -> dict:
     checks["cpm_received_in_gap"] = bool(out["cpm_in_gap"])
     checks["cpm_class_pedestrian"] = not out["cpm_in_gap"] or out["cpm_classes"] == ["pedestrian"]
 
-    # who sent CPMs about the pedestrian over the run, and the helpers whose CP service is off
-    senders = sorted(v2x["tx_station"].dropna().astype(str).unique().tolist())
+    # who sent the CPMs about the pedestrian that the ego received over the run (the ego's own CPMs, received by
+    # the other cars, are not counted), and the helpers whose CP service is off
+    senders = sorted(v2x.loc[v2x["rx_station"] == ego, "tx_station"].dropna().astype(str).unique().tolist())
     out["senders"] = senders
     out["other_senders"] = [s for s in senders if s not in configured]
     checks["senders_are_helpers"] = not out["other_senders"]

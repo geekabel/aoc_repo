@@ -144,8 +144,9 @@ any variant of the scenario):
 A run passes when: there is one pedestrian; the ego sees it with its own sensors, then loses it for 1.5 to 6 s
 (the occlusion), within 100 m when lost and within 40 m when seen again; during the gap at least one of the
 configured helpers sees it at four steps out of five; during the gap the ego receives at least one CPM row
-about it, and these rows are of class pedestrian; the senders of CPMs about it over the run are configured
-helpers only, and a helper whose CP service is off sends no CPM at all. With `--pilot` the six runs must be there (1, 2, 3 helpers, two seeds each). The
+about it, and these rows are of class pedestrian; the senders of the CPMs about it that the ego received over the run
+are configured helpers only (the ego's own CPMs go to the other cars and do not count), and a helper whose
+CP service is off sends no CPM at all. With `--pilot` the six runs must be there (1, 2, 3 helpers, two seeds each). The
 command exits with 0 on PASS, 1 on FAIL, 2 when no run was found.
 
 What the pilot shows is the "done when" of the plan for E1: the pilot runs end to end and the occlusion event
