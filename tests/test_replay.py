@@ -36,7 +36,7 @@ def test_load_without_noise_keeps_the_logged_values(exported_runs):
     plain = load_run(folder, noise=None)
     logged = pd.read_parquet(folder / "observations.parquet")
     assert plain.noise is None
-    pd.testing.assert_frame_equal(plain.obs, logged)
+    pd.testing.assert_frame_equal(plain.obs.drop(columns="range_m"), logged)        # the sensor tables add range_m only
 
 
 def test_load_of_a_folder_without_export_fails_clearly(tmp_path):

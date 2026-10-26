@@ -2,6 +2,8 @@
 
 Written:
   noise        the noise model of the replay: true state at the measurement time plus seeded noise (B2)
+  sensors      the sensor models and the weather tables: the detection probability applied at the replay and the
+               reliability of each sensor by weather and range bin for the discount (C6, ``python -m aoc.fusion.sensors``)
   replay       loads an exported run and replays it tick by tick for one vehicle (B2, command ``aoc-replay``)
   alignment    moves every object to the time of the tick, with its uncertainty (B3)
   association  decides which objects of a tick are the same real object, with the adapted greedy

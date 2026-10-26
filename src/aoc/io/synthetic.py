@@ -40,6 +40,7 @@ import pandas as pd
 
 from ..fusion.noise import NoiseModel, apply_noise
 from ..fusion.replay import Run
+from ..fusion.sensors import DEFAULT_TABLES, DEFAULT_WEATHER, SensorTables, apply_detection
 from .export import OBS_COLUMNS, dcc_state, write_parquet
 
 _US = 1_000_000
@@ -81,6 +82,8 @@ class Scenario:
     duration: float = 20.0            # end of the run in s
     step: float = 0.1                 # step of the truth and of the sensors in s
     sensor_range: float = 60.0        # range of the on-board sensor in m
+    sensor_name: str = "radar"        # name of the sensor in the rows; a name of the sensor tables (Camera, Radar, Lidar) gets their misses
+    weather: str | None = None        # weather written in the rows and used by the sensor tables (None: clear, nothing written)
     cpm_period: float = 0.1           # time between two CPMs of one car in s (a multiple of step)
     cpm_range: float = 400.0          # a CPM reaches the cars within this distance in m
     delay: float | tuple[float, float] = 0.1     # age at reception in s: fixed, or drawn between two bounds
@@ -202,7 +205,7 @@ def make_tables(scenario: Scenario, truth: pd.DataFrame | None = None) -> dict:
         "obj_id": ["%s/%s" % (names[a], names[b]) for a, b in zip(looker, obj)],
         "class": [classes[names[b]] for b in obj], "x": place[k, obj, 0], "y": place[k, obj, 1],
         "sender_conf": np.nan, "t_meas": times[k], "t_rx": times[k], "pdr_window": np.nan,
-        "gt_match_id": np.array(names, dtype=object)[obj], "sensor": "radar", "tx_station_id": np.nan,
+        "gt_match_id": np.array(names, dtype=object)[obj], "sensor": scenario.sensor_name, "tx_station_id": np.nan,
         "reference_time_ms": np.nan, "meas_src": "radar"})
 
     # the messages: a sender sends what it sees, every cpm_period, to the cars in radio range
@@ -260,7 +263,7 @@ def make_tables(scenario: Scenario, truth: pd.DataFrame | None = None) -> dict:
     obs["age"] = obs["t_rx"] - obs["t_meas"]
     obs["cbr"] = float(scenario.cbr)
     obs["dcc_state"] = dcc_state(obs["cbr"].to_numpy(float))
-    obs["weather"] = None
+    obs["weather"] = scenario.weather
     obs["gt_dist"] = 0.0
     obs["t_pos"] = obs["t_meas"]
     obs = obs.sort_values(["t_sim", "rx_station", "src"], kind="stable").reset_index(drop=True)
@@ -283,7 +286,8 @@ def summary(scenario: Scenario, obs: pd.DataFrame, truth: pd.DataFrame) -> dict:
     return {"run_id": scenario.name, "synthetic": True, "seed": scenario.seed, "cars": len(scenario.cars),
             "duration_s": scenario.duration, "step_s": scenario.step, "sensor_range_m": scenario.sensor_range,
             "cpm_period_s": scenario.cpm_period, "cpm_range_m": scenario.cpm_range, "delay_s": list(scenario.delay_bounds),
-            "loss": scenario.loss, "variables": {"T": "%gs" % scenario.cpm_period, "p": "%g" % scenario.loss},
+            "loss": scenario.loss, "weather": scenario.weather or "", "sensor_name": scenario.sensor_name,
+            "variables": {"T": "%gs" % scenario.cpm_period, "p": "%g" % scenario.loss},
             "rows": {"truth": int(len(truth)), "observations": int(len(obs)), "observations_v2x": int(len(v2x)),
                      "observations_local": int(len(obs) - len(v2x))},
             "age_v2x_s": {"median": round(float(v2x["age"].median()), 4) if len(v2x) else None,
@@ -291,14 +295,19 @@ def summary(scenario: Scenario, obs: pd.DataFrame, truth: pd.DataFrame) -> dict:
             "result": "PASS"}
 
 
-def make_run(scenario: Scenario, noise: NoiseModel | None | bool = True) -> Run:
-    """The synthetic run, ready for replay, with the noise applied the way ``load_run`` does it."""
+def make_run(scenario: Scenario, noise: NoiseModel | None | bool = True, sensors: SensorTables | None | bool = True) -> Run:
+    """The synthetic run, ready for replay, with the noise and the sensor tables applied the way ``load_run`` does it."""
     truth = make_truth(scenario)
     obs = make_observations(scenario, truth)
     model = scenario.noise if noise is True else (noise or None)
     if model is not None and len(obs):
         obs = apply_noise(obs, truth, model)
-    return Run(obs=obs, truth=truth, noise=model, info=summary(scenario, obs, truth))
+    weather = scenario.weather or DEFAULT_WEATHER
+    tables = DEFAULT_TABLES if sensors is True else (sensors or None)
+    counts: dict = {}
+    if tables is not None and len(obs):
+        obs, counts = apply_detection(obs, truth, tables, weather)
+    return Run(obs=obs, truth=truth, noise=model, info=summary(scenario, obs, truth), weather=weather, sensors=tables, detection=counts)
 
 
 def write_run(scenario: Scenario, folder: str | os.PathLike) -> dict:
