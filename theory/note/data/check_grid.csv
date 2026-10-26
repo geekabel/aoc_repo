@@ -1,0 +1,17 @@
+folder,run_id,config,seed,T,p,cpm_sent,cpm_received,cpm_dropped,period_median,loss_share,delay_median,links,object_rows,object_share,age_median,receiver_sees
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-0/parquet,link-0-20261025-13:30:38-3443263,link,0,1.0,0.0,984,1967,0,1.0,0.0,0.0003,2,656,1.0,0.0723,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-1/parquet,link-1-20261025-13:30:39-3443292,link,1,1.0,0.1,984,1788,179,1.0,0.091,0.0003,2,596,0.9085,0.0188,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-10/parquet,link-10-20261025-13:30:48-3443529,link,10,0.2,0.3,4932,6934,2913,0.2,0.2958,0.0002,2,2333,0.7113,0.0044,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-11/parquet,link-11-20261025-13:30:49-3443546,link,11,0.2,0.5,4932,4947,4900,0.2,0.4976,0.0002,2,1666,0.5079,0.0014,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-12/parquet,link-12-20261025-13:30:50-3443569,link,12,0.1,0.0,9864,19691,0,0.1,0.0,0.0002,2,6558,1.0,0.026,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-13/parquet,link-13-20261025-13:30:51-3443580,link,13,0.1,0.1,9864,17677,2014,0.1,0.1023,0.0002,2,5886,0.8975,0.0382,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-14/parquet,link-14-20261025-13:30:52-3443604,link,14,0.1,0.3,9864,13823,5868,0.1,0.298,0.0002,2,4641,0.708,0.0195,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-15/parquet,link-15-20261025-13:30:53-3443615,link,15,0.1,0.5,9864,9919,9770,0.1,0.4962,0.0002,2,3367,0.5137,0.0919,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-2/parquet,link-2-20261025-13:30:40-3443334,link,2,1.0,0.3,984,1350,617,1.0,0.3137,0.0003,2,450,0.686,0.0903,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-3/parquet,link-3-20261025-13:30:41-3443344,link,3,1.0,0.5,984,992,975,1.0,0.4957,0.0003,2,342,0.5221,0.0373,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-4/parquet,link-4-20261025-13:30:42-3443370,link,4,0.5,0.0,1971,3937,0,0.5,0.0,0.0002,2,1312,1.0,0.0223,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-5/parquet,link-5-20261025-13:30:43-3443380,link,5,0.5,0.1,1971,3544,393,0.5,0.0998,0.0002,2,1171,0.8925,0.0301,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-6/parquet,link-6-20261025-13:30:44-3443426,link,6,0.5,0.3,1971,2712,1225,0.5,0.3112,0.0002,2,921,0.703,0.0449,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-7/parquet,link-7-20261025-13:30:45-3443461,link,7,0.5,0.5,1971,2032,1905,0.5,0.4839,0.0002,2,679,0.5175,0.0924,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-8/parquet,link-8-20261025-13:30:46-3443495,link,8,0.2,0.0,4932,9847,0,0.2,0.0,0.0002,2,3280,1.0,0.0599,0
+/home/godwin/aoc-sim/c1/results/20261025-133037-link/aoc-link-9/parquet,link-9-20261025-13:30:47-3443504,link,9,0.2,0.1,4932,8820,1027,0.2,0.1043,0.0002,2,2951,0.8997,0.0079,0

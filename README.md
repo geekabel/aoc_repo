@@ -182,7 +182,9 @@ and the tests import the installed code. The other folders keep the names of the
 
 - One source for each file. The workstation scripts hold copies of the logger and of the exporter.
   They are built by `make scripts`, and a test fails when a copy is out of date.
-- Every number printed in the theory note comes from `theory/note/code/a5_figures.py`.
+- Every number printed in the theory note comes from `theory/note/code/a5_figures.py`, except the
+  check section (Section VIII), whose numbers and two figures come from `aoc-link`, `aoc-ages` and
+  `aoc-ealpha` on the single-link runs (`theory/note/data/README.md`).
   `tests/test_theory.py` checks Tables II and III of the note against the code.
 - The parameter values in `aoc.theory.reliability.CLASSES` are assumed values. They are not fitted to data yet.
 - The continuous integration (`.github/workflows/ci.yml`) runs the style check and the tests on Python 3.10 and 3.12.
