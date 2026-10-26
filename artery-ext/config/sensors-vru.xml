@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The three sensors of the plan for the occluded-VRU runs (task C5, scenario E1): a camera, a radar and a lidar.
+All three are the cone sensor of Artery with a line-of-sight check (the see-through sensor and the CAM
+sensor of Artery are not used): a range, an opening angle, a mounting point. Category "Radar" in the logs,
+so src = radar in the observations table; the name tells them apart.
+The ranges and angles are set in omnetpp.ini:
+    Camera   120 degrees, 80 m, at the front
+    Radar    120 degrees (plus or minus 60), 150 m, at the front
+    Lidar    360 degrees, 100 m
+Detection is deterministic in Artery: an object is seen when one of its corners is in the cone with a free
+line of sight. A detection probability per weather is not in the simulator; it belongs to the replay.
+-->
+<sensors>
+	<sensor name="Camera" type="artery.envmod.sensor.FrontRadar" />
+	<sensor name="Radar" type="artery.envmod.sensor.FrontRadar" />
+	<sensor name="Lidar" type="artery.envmod.sensor.RadarSensor" />
+</sensors>

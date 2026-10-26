@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_vru_scenario.py. Do not edit by hand. -->
+<!-- The zebra crossing at S1: pedestrians have priority, cars must yield. The crossings at C are
+     guessed by netconvert (option crossings.guess) and controlled by the traffic light. -->
+<connections>
+    <crossing node="S1" edges="S0S1 S1S0" priority="true" width="4.0"/>
+</connections>

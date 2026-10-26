@@ -9,6 +9,7 @@ Written:
                (C1, command ``aoc-link``)
   ages         the age at the receiver of the single-link runs against the law of the note, figure F3 (C2, command ``aoc-ages``)
   ealpha       E[alpha] measured on the single-link runs against the three forms of the note, figure F4 (C3, command ``aoc-ealpha``)
+  vru          the occluded-VRU runs: the timeline of the event in the logs of each run, and its check (C5, command ``aoc-vru``)
 
 Planned: the results database over the runs (task D4).
 """

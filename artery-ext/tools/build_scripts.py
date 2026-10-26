@@ -6,11 +6,13 @@
                   the two config files (artery-ext/config) and the exporter (src/aoc/io/export.py)
   c1_link.sh      template c1_link.template.sh     +  the AoC sources, the single-link scenario (artery-ext/link),
                   its services and sensors files, the exporter and the link check (src/aoc/analysis/link.py)
+  c5_vru.sh       template c5_vru.template.sh      +  the AoC sources, the occluded-VRU scenario (artery-ext/vru),
+                  its services and sensors files, the exporter and the event check (src/aoc/analysis/vru.py)
 
 A script holds a copy of each file it needs, so one file is enough on the workstation.
 The sources stay in one place in this repository. After a change of a source file, run
 
-    python artery-ext/tools/build_scripts.py            writes the three scripts
+    python artery-ext/tools/build_scripts.py            writes the four scripts
     python artery-ext/tools/build_scripts.py --check    writes nothing, fails if a script is out of date
 
 Needs only the Python standard library.
@@ -55,12 +57,20 @@ def build_c1():
     return text
 
 
+def build_c5():
+    template = (TOOLS / "c5_vru.template.sh").read_text(encoding="utf-8")
+    text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C5_FILE_EOF"), template)
+    if n != 21:
+        raise SystemExit(f"c5_vru.template.sh: expected 21 placeholders, found {n}")
+    return text
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build the shell scripts of artery-ext/scripts from their templates.")
     ap.add_argument("--check", action="store_true", help="write nothing; exit with 1 if a script is out of date")
     args = ap.parse_args(argv)
     stale = []
-    for name, build in (("a7_cp_demo.sh", build_a7), ("a8_logger.sh", build_a8), ("c1_link.sh", build_c1)):
+    for name, build in (("a7_cp_demo.sh", build_a7), ("a8_logger.sh", build_a8), ("c1_link.sh", build_c1), ("c5_vru.sh", build_c5)):
         text = build()
         target = SCRIPTS / name
         current = target.read_text(encoding="utf-8") if target.exists() else None

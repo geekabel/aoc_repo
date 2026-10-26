@@ -13,13 +13,13 @@ This repository holds what the tasks produce.
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table, synthetic streams | A8, B9 |
 | `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7 |
-| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law. The aggregation over runs comes later | B5, B8, C1 to C3, D4 |
-| `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, scripts for the workstation | A6, A7, A8, C1 |
+| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs. The aggregation over runs comes later | B5, B8, C1 to C3, C5, D4 |
+| `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, the occluded-VRU scenario, scripts for the workstation | A6, A7, A8, C1, C5 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers: `f03_ages.py` (F3) and `f04_ealpha.py` (F4) so far | C2, C3, D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, notes about Artery, issue draft | A8, B2 to B9, C1 to C3 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, the occluded-VRU scenario, notes about Artery, issue draft | A8, B2 to B9, C1 to C3, C5 |
 
 ## Quick start
 
@@ -54,6 +54,7 @@ Other commands:
 | `aoc-link RESULT_FOLDER [--grid]` | Reads the exported single-link runs of C1 and checks each one against its period T and its loss p |
 | `aoc-ages RESULT_FOLDER [--out f3.pdf]` | Compares the age at the receiver of the single-link runs with the law of the note, and draws figure F3 |
 | `aoc-ealpha RESULT_FOLDER [--out f4.pdf]` | Measures E[alpha] on the single-link runs for every class of the note and compares it with the exact law and the two formulas; draws figure F4 |
+| `aoc-vru RESULT_FOLDER [--pilot]` | Reads the exported occluded-VRU runs of C5 and prints the timeline of the event of each one (when the ego loses the pedestrian, who sees it, which CPMs reach the ego), with a PASS or FAIL |
 
 ## Typical uses
 

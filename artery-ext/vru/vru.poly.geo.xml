@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_vru_scenario.py. Do not edit by hand. -->
+<!-- A square building at each corner of the intersection (30 m aside, 11 m from the centre line), and two
+     buildings along the alley on the east side of the south leg, right behind the sidewalk, which hide the
+     alley from the road. Longitude and latitude (geo="true"): polyconvert projects them with the road file. -->
+<additional>
+    <poly id="building_NE" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900147,47.630099 6.900547,47.630099 6.900547,47.630368 6.900147,47.630368 6.900147,47.630099"/>
+    <poly id="building_NW" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.899853,47.630099 6.899453,47.630099 6.899453,47.630368 6.899853,47.630368 6.899853,47.630099"/>
+    <poly id="building_SW" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.899853,47.629901 6.899453,47.629901 6.899453,47.629632 6.899853,47.629632 6.899853,47.629901"/>
+    <poly id="building_SE" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900147,47.629901 6.900547,47.629901 6.900547,47.629632 6.900147,47.629632 6.900147,47.629901"/>
+    <poly id="building_alley_N" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629614 6.900674,47.629614 6.900674,47.629892 6.900115,47.629892 6.900115,47.629614"/>
+    <poly id="building_alley_S" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629578 6.900674,47.629578 6.900674,47.629308 6.900115,47.629308 6.900115,47.629578"/>
+</additional>

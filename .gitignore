@@ -41,3 +41,7 @@ results/
 .idea/
 .vscode/
 .DS_Store
+
+# built on the workstation (and here, for tests) by netconvert and polyconvert
+artery-ext/vru/vru.net.xml
+artery-ext/vru/vru.poly.xml

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_vru_scenario.py. Do not edit by hand. -->
+<!-- The centre C is the intersection; S1 is the zebra crossing on the south leg, 45 m before it;
+     A is the far end of the alley that comes out at S1 from the east. -->
+<nodes>
+    <node id="C" x="6.900000" y="47.630000" type="traffic_light"/>
+    <node id="N0" x="6.900000" y="47.632695" type="priority"/>
+    <node id="S0" x="6.900000" y="47.627305" type="priority"/>
+    <node id="E0" x="6.903999" y="47.630000" type="priority"/>
+    <node id="W0" x="6.896001" y="47.630000" type="priority"/>
+    <node id="S1" x="6.900000" y="47.629596" type="priority"/>
+    <node id="A" x="6.900666" y="47.629596" type="priority"/>
+</nodes>
