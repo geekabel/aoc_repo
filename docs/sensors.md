@@ -20,17 +20,17 @@ another stream).
 
 ## The tables
 
-The values are assumed. They are not fitted to data. The plan fits them on hold-out runs later (E3);
-`SensorTables.to_json` and `from_json` carry a fitted table, and `python -m aoc.fusion.sensors` prints or writes
-the defaults.
+The detection values are assumed. They are not fitted to data. The plan fits them on hold-out runs later
+(E3); `SensorTables.to_json` and `from_json` carry a fitted table, and `aoc-sensors` prints or writes the
+defaults. The reliability is 1 by decision (below).
 
-| Sensor | Range | Bins (m) | Detection, clear | Detection, rain | Reliability, clear | Reliability, rain |
-| --- | --- | --- | --- | --- | --- | --- |
-| Camera | 80 m, 120 degrees | 0-30-60-80 | 0.98, 0.95, 0.85 | 0.85, 0.70, 0.45 | 0.97, 0.95, 0.90 | 0.90, 0.80, 0.70 |
-| Radar | 150 m, 120 degrees | 0-50-100-150 | 0.97, 0.95, 0.90 | 0.95, 0.92, 0.85 | 0.95, 0.93, 0.90 | 0.93, 0.90, 0.85 |
-| Lidar | 100 m, 360 degrees | 0-40-70-100 | 0.99, 0.97, 0.90 | 0.90, 0.75, 0.55 | 0.98, 0.96, 0.92 | 0.90, 0.82, 0.72 |
+| Sensor | Range | Bins (m) | Detection, clear | Detection, rain | Reliability (clear and rain) |
+| --- | --- | --- | --- | --- | --- |
+| Camera | 80 m, 120 degrees | 0-30-60-80 | 0.98, 0.95, 0.85 | 0.85, 0.70, 0.45 | 1, 1, 1 |
+| Radar | 150 m, 120 degrees | 0-50-100-150 | 0.97, 0.95, 0.90 | 0.95, 0.92, 0.85 | 1, 1, 1 |
+| Lidar | 100 m, 360 degrees | 0-40-70-100 | 0.99, 0.97, 0.90 | 0.90, 0.75, 0.55 | 1, 1, 1 |
 
-The reasons, one line each: a camera falls first in rain and at long range; a radar hardly minds the rain and
+The reasons for the detection values, one line each: a camera falls first in rain and at long range; a radar hardly minds the rain and
 keeps its range; a lidar is the best in the clear and loses the most in rain (the beam scatters on the drops).
 A bin holds the distances up to its upper edge; an object beyond the last bin, or whose distance is unknown,
 takes the values of the last bin. The distance is the true distance between the station that made the
@@ -42,6 +42,21 @@ What the two tables stand for: the detection probability is the chance that the 
 (a missed detection); the reliability alpha_i is the trust in a report the sensor did produce, and stands for
 what Artery does not simulate (wrong sizes, wrong classes, ghosts near the edge of the range). They are not the
 same thing and both are in the plan.
+
+**The reliability is 1 in every bin** (decision of task C7, Oct 30, 2026). Artery makes no ghost and no wrong
+class: every report is true, so any reliability below 1 is pessimistic on its logs. The first guesses of C6
+(camera 0.97, 0.95, 0.90 in the clear and 0.90, 0.80, 0.70 in rain; radar 0.95, 0.93, 0.90 and 0.93, 0.90,
+0.85; lidar 0.98, 0.96, 0.92 and 0.90, 0.82, 0.72) made the proposed law under-confident on the pilot run of C5:
+calibration error 0.040 against 0.010 for the Bayesian way in the clear, 0.094 in rain, and a time to
+confidence of 5.7 s against 3.3 s, because a report of the radar alone (the only sensor beyond 100 m) got
+0.99 x 0.90 = 0.89, under the target of 0.9, before any age discount. With the reliability at 1 the same run
+gives 0.016 for the proposed law against 0.010 and 0.017 for the Bayesian way and the cutoff. The plan calibrates
+this table on hold-out runs; on Artery logs that calibration gives 1. The mechanism stays, for a sensor model
+with false alarms or for real data; the guesses are kept in `GUESSED_RELIABILITY` and `with_reliability` for the
+tests and as an example of a table. Two things follow for the papers: the reliability table is the identity in
+every reported result, and the rain subset acts through the detection table only (fewer rows, more missed
+objects); and the 0.89 against 0.9 of the guesses is also a matter of the target (`confident_belief` = 0.9 in the
+metrics), not of the idea of a table.
 
 A sensor that the tables do not name (the four radars of the Artery example, the `radar` of the synthetic
 streams) is never missed and has the reliability `sensor_default` of the trust model (1).
@@ -79,7 +94,8 @@ sensor that nothing names. On the command line, `--weather` and `--no-sensor-tab
 
 On a convoy of synthetic cars 30 m apart with a camera of 80 m, in rain, the sensor keeps 85% of the rows about
 the next car and 70% about the one after, the CPM rows about a car are gone exactly when its sender missed the
-car, and the belief of B3 in a locally seen car at 30 m is 0.99 x alpha(age) x 0.90 instead of 0.99 x alpha(age).
+car, and with the guessed reliability table the belief of B3 in a locally seen car at 30 m is
+0.99 x alpha(age) x 0.90 instead of 0.99 x alpha(age).
 
 ## What is not here
 

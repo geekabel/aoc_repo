@@ -23,14 +23,21 @@ reliability ``sensor_default`` of the trust model (1 today).
 
 The three sensors of the plan (artery-ext/config/sensors-vru.xml) and their assumed values:
 
-    sensor   range  bins (m)        detection clear   detection rain    reliability clear   reliability rain
-    Camera    80 m  0-30-60-80      0.98 0.95 0.85    0.85 0.70 0.45    0.97 0.95 0.90      0.90 0.80 0.70
-    Radar    150 m  0-50-100-150    0.97 0.95 0.90    0.95 0.92 0.85    0.95 0.93 0.90      0.93 0.90 0.85
-    Lidar    100 m  0-40-70-100     0.99 0.97 0.90    0.90 0.75 0.55    0.98 0.96 0.92      0.90 0.82 0.72
+    sensor   range  bins (m)        detection clear   detection rain    reliability (both)
+    Camera    80 m  0-30-60-80      0.98 0.95 0.85    0.85 0.70 0.45    1 1 1
+    Radar    150 m  0-50-100-150    0.97 0.95 0.90    0.95 0.92 0.85    1 1 1
+    Lidar    100 m  0-40-70-100     0.99 0.97 0.90    0.90 0.75 0.55    1 1 1
 
-The reasons, in one line each: a camera falls first in rain and at long range; a radar hardly minds the rain
-and keeps its range; a lidar is the best in the clear and loses the most in rain (the beam scatters on the
-drops). An object beyond the last bin takes the values of the last bin.
+The reasons for the detection values, in one line each: a camera falls first in rain and at long range; a radar
+hardly minds the rain and keeps its range; a lidar is the best in the clear and loses the most in rain (the beam
+scatters on the drops). An object beyond the last bin takes the values of the last bin.
+
+The reliability is 1 in every bin (decision of task C7, Oct 30, 2026). Artery makes no ghost and no wrong
+class: every report is true, so any reliability below 1 is pessimistic on its logs. The first guesses
+(``GUESSED_RELIABILITY``: 0.97 to 0.90 in the clear, 0.90 to 0.70 in rain for the camera, and so on) made the
+proposed law under-confident on the pilot run of C5 (calibration error 0.040 against 0.010 for the Bayesian
+way, 0.094 in rain). The plan calibrates this table on hold-out runs; on Artery logs that calibration gives 1.
+The mechanism stays, for a sensor model with false alarms or for real data.
 
 The drops are tied to the measurement, as the noise is: the same seed gives the same drops, whatever the
 order of the rows, and a subset of a run gives the same drops as the full run.
@@ -121,17 +128,31 @@ class SensorModel:
                 "reliability": {w: list(v) for w, v in self.reliability.items()}}
 
 
+ONE = {"clear": (1.0, 1.0, 1.0), "rain": (1.0, 1.0, 1.0)}
 DEFAULT_SENSORS = (
     SensorModel("Camera", 80.0, 120.0, (30.0, 60.0, 80.0),
-                detection={"clear": (0.98, 0.95, 0.85), "rain": (0.85, 0.70, 0.45)},
-                reliability={"clear": (0.97, 0.95, 0.90), "rain": (0.90, 0.80, 0.70)}),
+                detection={"clear": (0.98, 0.95, 0.85), "rain": (0.85, 0.70, 0.45)}, reliability=ONE),
     SensorModel("Radar", 150.0, 120.0, (50.0, 100.0, 150.0),
-                detection={"clear": (0.97, 0.95, 0.90), "rain": (0.95, 0.92, 0.85)},
-                reliability={"clear": (0.95, 0.93, 0.90), "rain": (0.93, 0.90, 0.85)}),
+                detection={"clear": (0.97, 0.95, 0.90), "rain": (0.95, 0.92, 0.85)}, reliability=ONE),
     SensorModel("Lidar", 100.0, 360.0, (40.0, 70.0, 100.0),
-                detection={"clear": (0.99, 0.97, 0.90), "rain": (0.90, 0.75, 0.55)},
-                reliability={"clear": (0.98, 0.96, 0.92), "rain": (0.90, 0.82, 0.72)}),
+                detection={"clear": (0.99, 0.97, 0.90), "rain": (0.90, 0.75, 0.55)}, reliability=ONE),
 )
+# the first guesses of the reliability (task C6), kept for the tests of the mechanism and as an example of a table
+GUESSED_RELIABILITY = {
+    "Camera": {"clear": (0.97, 0.95, 0.90), "rain": (0.90, 0.80, 0.70)},
+    "Radar": {"clear": (0.95, 0.93, 0.90), "rain": (0.93, 0.90, 0.85)},
+    "Lidar": {"clear": (0.98, 0.96, 0.92), "rain": (0.90, 0.82, 0.72)},
+}
+
+
+def with_reliability(tables: "SensorTables", values: Mapping[str, Mapping[str, tuple]]) -> "SensorTables":
+    """A copy of the tables with other reliability values, by sensor name (the sensors not named keep theirs)."""
+    sensors = {}
+    for name, model in tables.sensors.items():
+        if name in values:
+            model = SensorModel(model.name, model.range_m, model.fov_deg, model.bins, model.detection, dict(values[name]))
+        sensors[name] = model
+    return SensorTables(sensors, seed=tables.seed)
 
 
 @dataclass(frozen=True)
@@ -333,7 +354,7 @@ def main(argv=None) -> int:
             head = "%-8s %5.0f m %4.0f  %-16s" % (model.name, model.range_m, model.fov_deg, "-".join("%g" % b for b in (0.0,) + model.bins)) if k == 0 else " " * 38
             print("%s  %-8s  %-20s %s" % (head, weather, " ".join("%.2f" % v for v in model.detection[weather]),
                                          " ".join("%.2f" % v for v in model.reliability[weather])))
-    print("values assumed, not fitted; seed %d" % tables.seed)
+    print("detection values assumed, not fitted; reliability 1 by decision (task C7); seed %d" % tables.seed)
     if args.write:
         tables.to_json(args.write)
         print("written: %s" % args.write)

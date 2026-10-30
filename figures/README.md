@@ -11,3 +11,4 @@ it says so and stops without an error.
 | --- | --- | --- |
 | `f03_ages.py` | F3, the age at the receiver on the single-link runs against the law of the note | the C1 runs: the folder given on the command line, or `AOC_C1_RESULTS`, or `~/aoc-sim/c1/latest` |
 | `f04_ealpha.py` | F4, E[alpha] against the update rate for several losses, the formula of the note against the runs | the same |
+| `f06_money.py` | F6, the belief of the ego in the hidden pedestrian over time, with V2X and with its own sensors only | the occluded-VRU runs of C5: the folder given on the command line, or `AOC_C5_RESULTS`, or `~/aoc-sim/c5/latest` |
