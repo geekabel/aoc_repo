@@ -12,7 +12,7 @@ from aoc.fusion.alignment import align
 from aoc.fusion.discounting import TrustModel, declared_reliability, reliability
 from aoc.fusion.noise import measurement_keys, standard_normals
 from aoc.fusion.replay import load_run
-from aoc.fusion.sensors import DEFAULT_TABLES, SensorModel, SensorTables, apply_detection, station_distance, uniforms
+from aoc.fusion.sensors import DEFAULT_TABLES, GUESSED_RELIABILITY, SensorModel, SensorTables, apply_detection, station_distance, uniforms, with_reliability
 from aoc.io.synthetic import Car, Scenario, make_run, write_run
 
 
@@ -22,20 +22,27 @@ def convoy(sensor_name="Camera", weather=None, duration=60.0, n=6, spacing=30.0,
     return Scenario(cars, duration=duration, sensor_range=80.0, sensor_name=sensor_name, weather=weather, delay=0.1, **changes)
 
 
+GUESSED = with_reliability(DEFAULT_TABLES, GUESSED_RELIABILITY)        # the first guesses of C6: the tests of the mechanism use them
+
+
 def test_the_tables_of_the_plan():
-    camera = DEFAULT_TABLES.sensors["Camera"]
+    for model in DEFAULT_TABLES.sensors.values():
+        assert all(v == 1.0 for w in model.weathers for v in model.reliability[w])           # decision of C7
+    camera = GUESSED.sensors["Camera"]
     assert camera.bins == (30.0, 60.0, 80.0) and camera.weathers == ("clear", "rain")
     assert list(camera.bin_of([0.0, 29.9, 30.0, 30.1, 60.0, 79.0, 80.0, 200.0, np.nan])) == [0, 0, 0, 1, 1, 2, 2, 2, 2]
     assert list(camera.detection_probability("rain", [10.0, 45.0, 70.0, 500.0])) == [0.85, 0.70, 0.45, 0.45]
     assert list(camera.reliability_at("clear", [10.0, np.nan])) == [0.97, 0.90]           # an unknown distance takes the last bin
-    for model in DEFAULT_TABLES.sensors.values():
+    for model in GUESSED.sensors.values():
         for weather in model.weathers:
             assert all(a >= b for a, b in zip(model.detection[weather], model.detection[weather][1:]))      # worse with the distance
             assert all(a >= b for a, b in zip(model.reliability[weather], model.reliability[weather][1:]))
         assert all(c >= r for c, r in zip(model.detection["clear"], model.detection["rain"]))              # worse in rain
     names = pd.Series(["Camera", "Lidar", "radar", None])
     assert list(DEFAULT_TABLES.detection_probability(names, "clear", [10.0, 90.0, 10.0, 10.0])) == [0.98, 0.90, 1.0, 1.0]
-    assert list(DEFAULT_TABLES.reliability(names, "rain", [10.0, 10.0, 10.0, 10.0], default=0.5)) == [0.90, 0.90, 0.5, 0.5]
+    assert list(GUESSED.reliability(names, "rain", [10.0, 10.0, 10.0, 10.0], default=0.5)) == [0.90, 0.90, 0.5, 0.5]
+    assert list(DEFAULT_TABLES.reliability(names, "rain", [10.0, 10.0, 10.0, 10.0], default=0.5)) == [1.0, 1.0, 0.5, 0.5]
+    assert GUESSED.sensors["Camera"].detection == DEFAULT_TABLES.sensors["Camera"].detection
 
 
 def test_a_bad_table_is_refused():
@@ -68,7 +75,7 @@ def test_json_round_trip_and_the_command(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert [m["name"] for m in data["sensors"]] == ["Camera", "Radar", "Lidar"]
     proc = subprocess.run([sys.executable, "-m", "aoc.fusion.sensors", "--read", str(path)], capture_output=True, text=True)
-    assert proc.returncode == 0 and "Lidar" in proc.stdout and "values assumed" in proc.stdout
+    assert proc.returncode == 0 and "Lidar" in proc.stdout and "values assumed" in proc.stdout and "reliability 1 by decision" in proc.stdout
 
 
 def test_station_distance_and_the_misses_by_bin():
@@ -177,30 +184,32 @@ def test_load_run_applies_the_tables_and_reads_the_weather(tmp_path):
 
 
 def test_the_reliability_of_a_sensor_row_follows_the_tables():
-    run = make_run(convoy(weather="rain", duration=5.0))
+    run = make_run(convoy(weather="rain", duration=5.0), sensors=GUESSED)
     tick = next(t for t in run.replay("c0", period=0.1) if len(t.local) == 2)
     objects = align(tick).objects
     local = objects[~objects["source"].str.startswith("v2x")]
     assert sorted(np.round(local["range_m"], 3)) == [30.0, 60.0]
-    declared = declared_reliability(local, TrustModel(weather="rain"))
+    declared = declared_reliability(local, TrustModel(sensor_tables=GUESSED, weather="rain"))
     assert np.allclose(np.sort(declared), [0.80, 0.90])                                        # Camera in rain: 0.90 up to 30 m, 0.80 up to 60 m
-    assert np.allclose(declared_reliability(local, TrustModel(weather="clear")), np.where(local["range_m"] <= 30.0, 0.97, 0.95))
-    assert np.allclose(declared_reliability(local, TrustModel()), np.where(local["range_m"] <= 30.0, 0.97, 0.95))     # no weather: clear
-    assert np.allclose(declared_reliability(local, TrustModel(sensor_reliability={"Camera": 0.5})), 0.5)           # a constant wins
+    assert np.allclose(declared_reliability(local, TrustModel(sensor_tables=GUESSED, weather="clear")), np.where(local["range_m"] <= 30.0, 0.97, 0.95))
+    assert np.allclose(declared_reliability(local, TrustModel(sensor_tables=GUESSED)), np.where(local["range_m"] <= 30.0, 0.97, 0.95))   # no weather: clear
+    assert np.allclose(declared_reliability(local, TrustModel(weather="rain")), 1.0)             # the default tables: reliability 1
+    assert np.allclose(declared_reliability(local, TrustModel(sensor_tables=GUESSED, sensor_reliability={"Camera": 0.5})), 0.5)   # a constant wins
     assert np.allclose(declared_reliability(local, TrustModel(sensor_tables=None)), 1.0)
     assert np.allclose(declared_reliability(local, TrustModel(sensor_tables=None, sensor_default=0.7)), 0.7)
     without = local.drop(columns="range_m")
-    assert np.allclose(declared_reliability(without, TrustModel(weather="rain")), 0.70)         # no distance: the last bin
-    assert np.allclose(reliability(local, TrustModel(weather="rain")), reliability(local, TrustModel(sensor_tables=None)) * declared)
+    assert np.allclose(declared_reliability(without, TrustModel(sensor_tables=GUESSED, weather="rain")), 0.70)   # no distance: the last bin
+    assert np.allclose(reliability(local, TrustModel(sensor_tables=GUESSED, weather="rain")), reliability(local, TrustModel(sensor_tables=None)) * declared)
     assert TrustModel().for_run(run).weather == "rain" and TrustModel(weather="clear").for_run(run).weather == "clear"
+    assert TrustModel().for_run(run).sensor_tables is GUESSED
 
 
 def test_rain_lowers_the_reliability_and_the_evaluation_runs():
-    """With the tables, the reliability of a locally seen object is lower in rain than in the clear, and the
+    """With the guessed tables, the reliability of a locally seen object is lower in rain than in the clear, and the
     evaluation runs under both weathers with the tables of the run."""
     means = {}
     for weather in ("clear", "rain"):
-        run = make_run(convoy(weather=weather, duration=10.0, n=3))
+        run = make_run(convoy(weather=weather, duration=10.0, n=3), sensors=GUESSED)
         values = []
         for tick in run.replay("c0", period=0.5):
             objects = align(tick).objects

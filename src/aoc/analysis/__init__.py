@@ -10,6 +10,9 @@ Written:
   ages         the age at the receiver of the single-link runs against the law of the note, figure F3 (C2, command ``aoc-ages``)
   ealpha       E[alpha] measured on the single-link runs against the three forms of the note, figure F4 (C3, command ``aoc-ealpha``)
   vru          the occluded-VRU runs: the timeline of the event in the logs of each run, and its check (C5, command ``aoc-vru``)
+  trace        the belief of one vehicle in one true object over time, with V2X and with its own sensors only (C7)
+  pilot        the pilot through the whole pipeline: metrics per run, the traces of the ego about the pedestrian, figure F6
+               (C7, command ``aoc-pilot``)
 
 Planned: the results database over the runs (task D4).
 """
