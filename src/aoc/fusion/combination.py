@@ -244,7 +244,7 @@ def check_run(run: Run, model: CombinationModel | None = None, trust: TrustModel
     cautious rule for the received objects, B4 the discount with Dempster only (the ablation).
     """
     model = model or CombinationModel()
-    trust = trust or TrustModel()
+    trust = (trust or TrustModel()).for_run(run)
     if trust.law != "aoc":
         raise ValueError("give a trust model with the law 'aoc': the check builds the baselines itself")
     variants = {"B0": (replace(trust, law="full_trust"), replace(model, cpm_rule="conjunctive")),
@@ -321,13 +321,16 @@ def main(argv=None) -> int:
                     help="forget a received object when it is older than this value in s (default: keep it until the end of the run)")
     ap.add_argument("--q", action="append", default=[], metavar="CLASS=VALUE", help="motion value of the reliability curve for one class")
     ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
+    ap.add_argument("--weather", default=None, help="weather of the replay and of the sensor tables: clear or rain (default: the one of the run, else clear)")
+    ap.add_argument("--no-sensor-tables", action="store_true", help="no sensor tables: every logged sensor row is kept and every sensor is fully reliable")
     args = ap.parse_args(argv)
     try:
         from .discounting import _q_options
         trust = TrustModel(q_by_class=_q_options(args.q))
         if args.hold is not None and not args.hold > 0.0:
             raise ValueError("--hold must be a positive number of seconds")
-        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise")
+        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise", weather=args.weather,
+                       sensors=not args.no_sensor_tables)
         c = check_run(run, trust=trust, hold=args.hold)
     except (FileNotFoundError, ValueError) as err:
         print("ERROR: %s" % err, file=sys.stderr)

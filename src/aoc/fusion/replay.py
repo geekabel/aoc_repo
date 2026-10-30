@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 
 from .noise import NoiseModel, apply_noise
+from .sensors import DEFAULT_TABLES, DEFAULT_WEATHER, SensorTables, apply_detection
 
 _US = 1_000_000          # times are compared in whole microseconds
 TRUTH_COLUMNS = ("gt_match_id", "gt_dist", "gt_x", "gt_y", "gt_vx", "gt_vy", "gt_gap")
@@ -90,6 +91,9 @@ class Run:
     noise: NoiseModel | None = None      # the noise model that was applied, or None
     info: dict = field(default_factory=dict)       # content of export_summary.json
     dropped: int = 0                     # rows left out at loading (no true object or no time)
+    weather: str = "clear"               # the weather of the replay (the detection and the reliability tables)
+    sensors: object = None               # the SensorTables applied, or None
+    detection: dict = field(default_factory=dict)  # the counts of apply_detection (rows the sensors missed)
 
     @property
     def egos(self) -> list[str]:
@@ -196,13 +200,29 @@ class Run:
             yield Tick(t=t, ego=ego, ego_state=ego_state, local=now_local, v2x_new=now_new, v2x=known, truth=truth.iloc[a:b].copy())
 
 
-def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, missing: str = "raise") -> Run:
+def run_weather(obs: pd.DataFrame, info: dict) -> str | None:
+    """The weather written by the exporter (option --weather), or None."""
+    weather = info.get("weather") if isinstance(info, dict) else None
+    if not weather and "weather" in obs.columns:
+        values = obs["weather"].dropna().unique()
+        weather = str(values[0]) if len(values) == 1 and str(values[0]) else None
+    return str(weather) if weather else None
+
+
+def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, missing: str = "raise",
+             sensors: SensorTables | None | bool = True, weather: str | None = None) -> Run:
     """Loads one exported run: the folder that holds observations.parquet and truth.parquet.
 
     noise    True: the default noise model (sigma_x 0.3 m, sigma_v 0.5 m/s, seed 0).
              A NoiseModel: this one. None or False: no noise, the logged values are kept as they are.
     missing  what to do with observations that have no true object or no time: "raise" or "drop".
              The number of rows left out is in ``run.dropped``.
+    sensors  True: the default sensor tables (the detection probabilities of the plan, seed 0): the rows
+             that a sensor missed in this weather are left out, and every row gets its ``range_m``.
+             A SensorTables: this one. None or False: every logged row is kept.
+    weather  the weather of the replay: "clear" or "rain" (or any weather of the tables). None: the weather
+             the exporter wrote (option --weather), else "clear". It is kept in ``run.weather`` for the
+             reliability tables of the discounting.
     """
     if missing not in ("raise", "drop"):
         raise ValueError('missing must be "raise" or "drop"')
@@ -227,7 +247,15 @@ def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, 
     model = NoiseModel() if noise is True else (noise or None)
     if model is not None:
         obs = apply_noise(obs, truth, model, missing=missing)
-    return Run(obs=obs, truth=truth, noise=model, info=info, dropped=n_rows - len(obs))
+    dropped = n_rows - len(obs)
+    weather = weather or run_weather(obs, info) or DEFAULT_WEATHER
+    tables = DEFAULT_TABLES if sensors is True else (sensors or None)
+    counts: dict = {}
+    if tables is not None:
+        if tables.sensors and weather not in tables.weathers:
+            raise ValueError("the sensor tables have no weather %r (they have: %s)" % (weather, ", ".join(tables.weathers)))
+        obs, counts = apply_detection(obs, truth, tables, weather)
+    return Run(obs=obs, truth=truth, noise=model, info=info, dropped=dropped, weather=weather, sensors=tables, detection=counts)
 
 
 # ----------------------------------------------------------------------------
@@ -314,10 +342,21 @@ def check_run(run: Run, period: float = 0.1) -> dict:
     is_v2x = (obs["src"] == "v2x").to_numpy(dtype=bool, na_value=False)
     own = (obs["gt_match_id"] == obs["rx_station"]).to_numpy(dtype=bool, na_value=False)
     out["v2x_rows_about_the_receiver"] = int((is_v2x & own).sum())
+    # a vehicle that leaves the simulation is replayed up to its last true step: a CPM received after that step
+    # (in the last fraction of a second of its life) is never replayed
+    period_us = int(round(period * _US))
+    last_true = run.truth.groupby("obj_id")["t"].max()
+    last_tick = (np.round(last_true.to_numpy(dtype=float) * _US).astype(np.int64) // period_us)
+    last_tick_of = dict(zip(last_true.index.astype(object), last_tick))
+    rx_last = obs["rx_station"].map(last_tick_of).to_numpy(dtype=float, na_value=np.inf)
+    row_tick = -((-np.round(obs["t_rx"].to_numpy(dtype=float) * _US).astype(np.int64)) // period_us)
+    after_left = is_v2x & ~own & (row_tick > rx_last)
+    out["v2x_rows_after_the_receiver_left"] = int(after_left.sum())
     if n_local != int((~is_v2x).sum()):
         problems.append("the replay gave %d sensor rows, the table holds %d" % (n_local, int((~is_v2x).sum())))
-    if n_new != int((is_v2x & ~own).sum()):
-        problems.append("the replay gave %d CPM rows, the table holds %d" % (n_new, int((is_v2x & ~own).sum())))
+    expected_new = int((is_v2x & ~own & ~after_left).sum())
+    if n_new != expected_new:
+        problems.append("the replay gave %d CPM rows, the table holds %d" % (n_new, expected_new))
     if n_no_ego > 0.01 * max(ticks, 1):
         problems.append("the true state of the vehicle is missing on %d ticks" % n_no_ego)
     out["problems"] = list(dict.fromkeys(problems))
@@ -333,11 +372,14 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0, help="seed of the noise (default 0)")
     ap.add_argument("--period", type=float, default=0.1, help="time between two fusion ticks in s (default 0.1)")
     ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
+    ap.add_argument("--weather", default=None, help="weather of the replay: clear or rain (default: the one the exporter wrote, else clear)")
+    ap.add_argument("--no-sensor-tables", action="store_true", help="keep every logged sensor row (no detection probability)")
     args = ap.parse_args(argv)
 
     try:
         model = NoiseModel(sigma_x=args.sigma_x, sigma_v=args.sigma_v, seed=args.seed)
-        run = load_run(args.run_dir, noise=model, missing="drop" if args.drop_unmatched else "raise")
+        run = load_run(args.run_dir, noise=model, missing="drop" if args.drop_unmatched else "raise",
+                       sensors=not args.no_sensor_tables, weather=args.weather)
         c = check_run(run, period=args.period)
     except (FileNotFoundError, ValueError) as err:
         print("ERROR: %s" % err, file=sys.stderr)
@@ -346,6 +388,12 @@ def main(argv=None) -> int:
     print("B2 REPLAY CHECK")
     print("  run:                 %s" % run.info.get("run_id", os.path.abspath(args.run_dir)))
     print("  noise model:         sigma_x %.2f m, sigma_v %.2f m/s, seed %d" % (model.sigma_x, model.sigma_v, model.seed))
+    d = run.detection
+    if d:
+        print("  sensor tables:       weather %s, seed %d: %d of %d sensor rows missed, %d of %d CPM rows not sent (%d without a sensor row of the sender)"
+              % (run.weather, run.sensors.seed, d["sensor_rows_dropped"], d["sensor_rows"], d["cpm_rows_dropped"], d["cpm_rows"], d["cpm_rows_without_sensor_row"]))
+    else:
+        print("  sensor tables:       none (weather %s)" % run.weather)
     print("  observations:        %d rows, %d vehicles (%d rows left out at loading)" % (c["rows"], c["vehicles"], c["rows_left_out_at_loading"]))
     print("  measurements:        %d different ones (one measurement can reach several vehicles)" % c.get("measurements", 0))
     print("  checked against the truth table: %d measurements" % c.get("measurements_checked", 0))
@@ -359,6 +407,7 @@ def main(argv=None) -> int:
           % (c["local_rows"] / max(c["ticks"], 1), c["v2x_new_rows"] / max(c["ticks"], 1), c["v2x_known_mean"]))
     print("  oldest known CPM object: %.1f s" % c["oldest_known_age_s"])
     print("  CPM rows about the receiver itself, left out: %d" % c["v2x_rows_about_the_receiver"])
+    print("  CPM rows received after the receiver left the simulation, left out: %d" % c["v2x_rows_after_the_receiver_left"])
     print("  result:              %s%s" % (c["result"], "" if not c["problems"] else " (" + "; ".join(c["problems"]) + ")"))
     return 0 if not c["problems"] else 3
 

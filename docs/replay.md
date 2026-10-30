@@ -46,14 +46,34 @@ for tick in run.replay("flow0.0", period=0.1):    # one tick every 0.1 s
 | `age_now` | time of the tick minus the measurement time, in s. This is the age that the reliability uses |
 | `gt_x`, `gt_y`, `gt_vx`, `gt_vy` | true state of the object at the measurement time (only with a noise model) |
 | `gt_gap` | 0, or the distance in s to the nearest logged true state (only with a noise model) |
+| `range_m` | true distance in m between the station that made the measurement (the receiver for a sensor row, the sender for a CPM row) and the object, at the measurement time (only with the sensor tables). The one column of ground truth a fusion may read: it stands for the range the sensor measured (`sensors.md`) |
 
 `tick.truth` has the columns of the truth table. The vehicle itself is not in it: its state is in `tick.ego_state`,
 which is None when the vehicle is not in the simulation at this tick.
 
 Rule: a fusion may read every column except those whose name starts with `gt_`. They are the ground truth.
+(`range_m` is true too, but stands for a measured range: the discount reads it by bin.)
 
 Each table of a tick is a copy. You can change it freely: the next ticks are not affected.
 Text columns hold Python strings, and None where a value is missing.
+
+## The sensor tables
+
+`load_run(folder, sensors=True, weather=None)` also applies the sensor tables of task C6 (`sensors.md`): the
+sensor rows that a sensor misses in the weather of the run are left out (a detection probability by sensor,
+weather and range bin), the CPM rows whose sender missed the object at the measurement time with them, and every
+row gets its `range_m`. The weather is the one the exporter wrote (`aoc-export --weather rain`), else clear;
+`weather="rain"` forces it. `run.weather`, `run.sensors` and `run.detection` (the counts) say what was done.
+`sensors=None` keeps every logged row (and the discount then uses no table either, through `TrustModel.for_run`).
+A sensor that the tables do not name (the four radars of the Artery example) is never missed, and neither are
+the CPM rows of a sender whose sensors are not in the tables. The misses are tied to the measurement like the
+noise: the same seed gives the same misses, and a subset of a run gives the same misses as the full run.
+`run.dropped` counts the rows left out at loading only; the misses are in `run.detection`.
+
+A vehicle that leaves the simulation is replayed up to its last true step. A CPM it received after that step, in
+the last fraction of a second of its life, is never replayed; `check_run` counts these rows
+(`v2x_rows_after_the_receiver_left`) and does not report them as missing. The occluded-VRU runs, where cars drive
+off the map, are the first with such rows.
 
 ## The noise model
 

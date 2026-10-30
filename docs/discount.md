@@ -104,9 +104,11 @@ assumed values of the theory note, the ones that the alignment uses. Changing th
 
 **2. What the source declares.** For a received object: the confidence that the sender declared (column
 `sender_conf`, between 0 and 1). An empty value counts as 1. Artery always declares the highest quality, so this
-factor is 1 in today's runs. For an object of an on-board sensor: the reliability of the sensor
-(`TrustModel.sensor_reliability`). It is 1 today. The table by weather and range of the plan comes with the
-sensor models (task C6).
+factor is 1 in today's runs. For an object of an on-board sensor: the reliability alpha_i of the sensor, read in
+the sensor tables by weather and range bin (`TrustModel.sensor_tables`, `TrustModel.weather`, the column
+`range_m` that the replay writes; see `sensors.md`), or a constant per sensor (`TrustModel.sensor_reliability`,
+which wins over the tables), or `TrustModel.sensor_default` (1) for a sensor that neither names. With no weather
+set, the model takes the weather of the run (`TrustModel.for_run`), else clear.
 
 ## Classical or contextual discounting?
 

@@ -37,6 +37,8 @@ write_run(Scenario(cars), "runs/synthetic")                                 # ob
 | `sends` | whether the car sends CPMs | True |
 | `duration`, `step` | end of the run and step of the truth and of the sensors, in s | 20, 0.1 |
 | `sensor_range` | the on-board sensor sees every other car within this distance, in m | 60 |
+| `sensor_name` | the name of the sensor in the rows; a name of the sensor tables (Camera, Radar, Lidar) gets their misses and their reliability | radar |
+| `weather` | the weather written in the rows and used by the sensor tables (`sensors.md`) | none (clear) |
 | `cpm_period`, `cpm_range` | one CPM per car every so many seconds, to the cars within this distance | 0.1, 400 |
 | `delay` | age at reception in s: one value, or a pair (low, high) drawn uniformly | 0.1 |
 | `loss` | probability that one copy of a CPM is lost | 0 |

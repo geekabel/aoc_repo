@@ -34,6 +34,7 @@ aoc-link = "aoc.analysis.link:main"
 aoc-ages = "aoc.analysis.ages:main"
 aoc-ealpha = "aoc.analysis.ealpha:main"
 aoc-vru = "aoc.analysis.vru:main"
+aoc-sensors = "aoc.fusion.sensors:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

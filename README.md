@@ -12,14 +12,14 @@ This repository holds what the tasks produce.
 | --- | --- | --- |
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table, synthetic streams | A8, B9 |
-| `src/aoc/fusion/` | Replay loader, noise model, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7 |
+| `src/aoc/fusion/` | Replay loader, noise model, sensor models and weather tables, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7, C6 |
 | `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs. The aggregation over runs comes later | B5, B8, C1 to C3, C5, D4 |
 | `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, the occluded-VRU scenario, scripts for the workstation | A6, A7, A8, C1, C5 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers: `f03_ages.py` (F3) and `f04_ealpha.py` (F4) so far | C2, C3, D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, the occluded-VRU scenario, notes about Artery, issue draft | A8, B2 to B9, C1 to C3, C5 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, the occluded-VRU scenario, the sensor models and weather tables, notes about Artery, issue draft | A8, B2 to B9, C1 to C3, C5, C6 |
 
 ## Quick start
 
@@ -43,7 +43,7 @@ Other commands:
 | `make scripts` | Builds the workstation scripts again after a change of a source file |
 | `make schema` | Writes `docs/observations_schema.md` again after a change of the columns |
 | `aoc-export RUN_FOLDER` | Turns the logs of one simulation run into parquet files |
-| `aoc-replay RUN_FOLDER` | Checks an exported run: noise model and replay of every vehicle |
+| `aoc-replay RUN_FOLDER [--weather rain]` | Checks an exported run: noise model, sensor tables (the rows the sensors miss in this weather) and replay of every vehicle |
 | `aoc-associate RUN_FOLDER` | Checks the association of a run against the ground truth |
 | `aoc-evidence RUN_FOLDER` | Builds the existence and class evidence of every object of a run and checks it |
 | `aoc-discount RUN_FOLDER` | Lowers the existence evidence of every object by its age, checks it, and compares full trust, a hard cutoff and the discount |
@@ -54,6 +54,7 @@ Other commands:
 | `aoc-link RESULT_FOLDER [--grid]` | Reads the exported single-link runs of C1 and checks each one against its period T and its loss p |
 | `aoc-ages RESULT_FOLDER [--out f3.pdf]` | Compares the age at the receiver of the single-link runs with the law of the note, and draws figure F3 |
 | `aoc-ealpha RESULT_FOLDER [--out f4.pdf]` | Measures E[alpha] on the single-link runs for every class of the note and compares it with the exact law and the two formulas; draws figure F4 |
+| `aoc-sensors [--write tables.json]` | Prints the sensor models and the weather tables (detection probability and reliability by sensor, weather and range bin), or writes them to a file |
 | `aoc-vru RESULT_FOLDER [--pilot]` | Reads the exported occluded-VRU runs of C5 and prints the timeline of the event of each one (when the ego loses the pedestrian, who sees it, which CPMs reach the ego), with a PASS or FAIL |
 
 ## Typical uses
@@ -87,7 +88,7 @@ Replay the run for one vehicle, tick by tick (details in `docs/replay.md`):
 ```python
 from aoc.fusion.replay import load_run
 
-run = load_run("/tmp/run_aoc")                       # adds the measurement noise (sigma_x 0.3 m, sigma_v 0.5 m/s)
+run = load_run("/tmp/run_aoc")                       # adds the measurement noise (sigma_x 0.3 m, sigma_v 0.5 m/s) and the misses of the sensor tables
 for tick in run.replay("flow0.0"):                   # one tick every 0.1 s
     print(tick.t, len(tick.local), len(tick.v2x_new), len(tick.v2x))
 ```
@@ -188,6 +189,7 @@ and the tests import the installed code. The other folders keep the names of the
   `aoc-ealpha` on the single-link runs (`theory/note/data/README.md`).
   `tests/test_theory.py` checks Tables II and III of the note against the code.
 - The parameter values in `aoc.theory.reliability.CLASSES` are assumed values. They are not fitted to data yet.
+  So are the sensor tables of `aoc.fusion.sensors` (detection probability and reliability by weather and range bin).
 - The continuous integration (`.github/workflows/ci.yml`) runs the style check and the tests on Python 3.10 and 3.12.
   It does not build Artery.
 

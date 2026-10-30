@@ -193,7 +193,8 @@ def _distance_confidence(cov: np.ndarray, epsilon: float) -> np.ndarray:
 def evaluate_run(run: Run, model: EvaluationModel | None = None) -> pd.DataFrame:
     """One row per way (B0 to B4) with the metrics of the plan, for one run."""
     model = model or EvaluationModel()
-    trust = {"B0": replace(model.trust, law="full_trust"), "B1": replace(model.trust, law="cutoff"), "B3": model.trust, "B4": model.trust}
+    base = model.trust.for_run(run)
+    trust = {"B0": replace(base, law="full_trust"), "B1": replace(base, law="cutoff"), "B3": base, "B4": base}
     combination = {"B0": replace(model.combination, cpm_rule="conjunctive"), "B1": replace(model.combination, cpm_rule="conjunctive"),
                    "B3": model.combination, "B4": replace(model.combination, cpm_rule="conjunctive")}
     collectors = {way: _Collector() for way in WAYS}
@@ -303,11 +304,14 @@ def main(argv=None) -> int:
     ap.add_argument("--q", action="append", default=[], metavar="CLASS=VALUE", help="motion value of the reliability curve for one class")
     ap.add_argument("--out", default=None, help="write the rows to this file (.parquet, .csv or .json)")
     ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
+    ap.add_argument("--weather", default=None, help="weather of the replay and of the sensor tables: clear or rain (default: the one of the run, else clear)")
+    ap.add_argument("--no-sensor-tables", action="store_true", help="no sensor tables: every logged sensor row is kept and every sensor is fully reliable")
     args = ap.parse_args(argv)
     try:
         from ..fusion.discounting import _q_options
         model = EvaluationModel(hold=None if args.hold == 0 else args.hold, trust=TrustModel(q_by_class=_q_options(args.q)))
-        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise")
+        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise", weather=args.weather,
+                       sensors=not args.no_sensor_tables)
         table = evaluate_run(run, model)
         if args.out:
             if args.out.endswith(".parquet"):
@@ -328,6 +332,9 @@ def main(argv=None) -> int:
     print("B8 EVALUATION")
     print("  run:                 %s" % (first["run_id"] or os.path.abspath(args.run_dir)))
     print("  memory:              a received object is %s" % ("kept until the end of the run" if model.hold is None else "forgotten after %g s" % model.hold))
+    d = run.detection
+    print("  weather:             %s%s" % (run.weather, "" if not d else ", sensor tables: %d of %d sensor rows missed, %d of %d CPM rows not sent"
+                                            % (d["sensor_rows_dropped"], d["sensor_rows"], d["cpm_rows_dropped"], d["cpm_rows"])))
     print("  objects:             %d in %d ticks of %d vehicles, in %.1f s" % (first["objects"], first["ticks"], len(run.egos), first["seconds"]))
     print("  network:             channel busy ratio %s, delivery ratio %s, age at reception median %s s and 95th percentile %s s"
           % (number(first["cbr_mean"]), number(first["pdr_mean"]), number(first["age_median"]), number(first["age_p95"])))

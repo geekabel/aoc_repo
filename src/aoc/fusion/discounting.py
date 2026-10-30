@@ -16,7 +16,9 @@ the plan compares:
   aoc         the proposed law (B3 of the plan). alpha is the reliability curve of the theory note, read at the
               age of the object: the probability that the object is still within the tolerance of the place
               where its report puts it now. For a received object it is multiplied by the confidence that the
-              sender declared. For an on-board sensor it is multiplied by the reliability of the sensor (1 today).
+              sender declared. For an on-board sensor it is multiplied by the reliability of the sensor: the
+              table of the sensor by weather and range bin (task C6, ``aoc.fusion.sensors``), or a constant
+              per sensor, or 1 for a sensor that no table names.
   full_trust  no discount (baseline B0): alpha = 1.
   cutoff      today's practice (baseline B1): a received object older than 1 s is dropped (alpha = 0),
               every other object is fully trusted (alpha = 1). An object of exactly 1 s is kept.
@@ -53,6 +55,7 @@ from .bba import Evidence, EvidenceModel, build_evidence
 from .belief import CLASS, EXISTENCE
 from .noise import NoiseModel
 from .replay import Run, load_run
+from .sensors import DEFAULT_TABLES, DEFAULT_WEATHER, SensorTables
 
 LAWS = ("aoc", "full_trust", "cutoff")
 #: Name of each law in the plan.
@@ -71,8 +74,15 @@ class TrustModel:
     q_default             value for a class that is not in the table
     use_sender_confidence multiply alpha of a received object by the confidence declared by its sender
                           (column ``sender_conf``; an empty value counts as 1)
-    sensor_reliability    reliability of each on-board sensor, by name of the sensor (column ``sensor``)
-    sensor_default        reliability of an on-board sensor that is not in the table (1: fully trusted)
+    sensor_reliability    reliability of each on-board sensor, by name of the sensor (column ``sensor``): a
+                          constant that wins over the tables below for that sensor
+    sensor_tables         the tables of the sensors by weather and range bin (``aoc.fusion.sensors``), read with
+                          the columns ``sensor`` and ``range_m`` (the replay writes ``range_m``). None: no table.
+                          The default tables are replaced by the tables of the run by ``for_run`` (the tables the
+                          run was loaded with, None included): the misses and the reliability go together.
+    weather               the weather of the tables; None: the weather of the run given to the evaluation,
+                          else "clear"
+    sensor_default        reliability of an on-board sensor that no constant and no table names (1: fully trusted)
     cutoff_age            age limit of the law "cutoff" in s
     """
 
@@ -82,6 +92,8 @@ class TrustModel:
     q_default: float = Q_DEFAULT
     use_sender_confidence: bool = True
     sensor_reliability: Mapping[str, float] = field(default_factory=dict)
+    sensor_tables: SensorTables | None = DEFAULT_TABLES
+    weather: str | None = None
     sensor_default: float = 1.0
     cutoff_age: float = 1.0
 
@@ -100,6 +112,20 @@ class TrustModel:
             raise ValueError("a motion value q must be a number that is not negative")
         if not all(0.0 <= r <= 1.0 for r in sensors):
             raise ValueError("the reliability of a sensor must be a number between 0 and 1")
+        if self.sensor_tables is not None and not isinstance(self.sensor_tables, SensorTables):
+            raise ValueError("sensor_tables must be a SensorTables or None")
+        if self.weather is not None and self.sensor_tables is not None and self.sensor_tables.sensors and self.weather not in self.sensor_tables.weathers:
+            raise ValueError("the sensor tables have no weather %r (they have: %s)" % (self.weather, ", ".join(self.sensor_tables.weathers)))
+
+    def for_run(self, run) -> "TrustModel":
+        """The same model with the weather and the sensor tables of the run, for what was not set by hand:
+        the weather when none was set, the tables when the model still has the default ones."""
+        changes = {}
+        if self.weather is None:
+            changes["weather"] = getattr(run, "weather", None) or DEFAULT_WEATHER
+        if self.sensor_tables is DEFAULT_TABLES and hasattr(run, "sensors"):
+            changes["sensor_tables"] = run.sensors
+        return replace(self, **changes) if changes else self
 
 
 @dataclass
@@ -206,12 +232,22 @@ def declared_reliability(objects: pd.DataFrame, model: TrustModel | None = None)
         if bad.any():
             raise ValueError("%d received objects have a sender confidence outside 0 to 1" % int(bad.sum()))
         out = out * np.where(received & ~np.isnan(declared), declared, 1.0)
-    if (model.sensor_reliability or model.sensor_default != 1.0) and (~received).any():
+    tables = model.sensor_tables if (model.sensor_tables is not None and model.sensor_tables.sensors) else None
+    if (model.sensor_reliability or model.sensor_default != 1.0 or tables is not None) and (~received).any():
         if "sensor" not in objects.columns:
             raise ValueError("the reliability of the sensors needs the column 'sensor'")
-        names = objects["sensor"].to_numpy(dtype=object)
-        of_sensor = np.array([model.sensor_reliability.get(name, model.sensor_default) if isinstance(name, str) else model.sensor_default
-                              for name in names], dtype=float)
+        names = objects["sensor"]
+        of_sensor = np.full(len(objects), float(model.sensor_default))
+        if tables is not None:
+            if "range_m" in objects.columns:
+                distance = objects["range_m"].to_numpy(dtype=float, na_value=np.nan)
+            else:
+                distance = np.full(len(objects), np.nan)                     # no distance: the last bin of the table
+            of_sensor = tables.reliability(names, model.weather or DEFAULT_WEATHER, distance, default=model.sensor_default)
+        if model.sensor_reliability:
+            constant = np.array([model.sensor_reliability.get(name, np.nan) if isinstance(name, str) else np.nan
+                                 for name in names.to_numpy(dtype=object)], dtype=float)
+            of_sensor = np.where(np.isnan(constant), of_sensor, constant)
         out = out * np.where(received, 1.0, of_sensor)
     return out
 
@@ -277,7 +313,7 @@ def check_run(run: Run, model: TrustModel | None = None, evidence_model: Evidenc
     fit    also search, for each class, the motion value that fits the run best: the smallest Brier score over
            the received objects of the class. The measures with these values are given.
     """
-    model = model or TrustModel()
+    model = (model or TrustModel()).for_run(run)
     if model.law != "aoc":
         raise ValueError("the check compares the three laws: give a model with the law 'aoc'")
     models = {"full_trust": replace(model, law="full_trust"), "cutoff": replace(model, law="cutoff"), "aoc": model}
@@ -380,13 +416,16 @@ def main(argv=None) -> int:
     ap.add_argument("--fit", action="store_true", help="also search the motion value that fits this run best (smallest Brier score)")
     ap.add_argument("--motion", action="store_true", help="also measure how the objects really move, on the ground truth of the run")
     ap.add_argument("--drop-unmatched", action="store_true", help="leave out the rows without a true object or without a time")
+    ap.add_argument("--weather", default=None, help="weather of the replay and of the sensor tables: clear or rain (default: the one of the run, else clear)")
+    ap.add_argument("--no-sensor-tables", action="store_true", help="no sensor tables: every logged sensor row is kept and every sensor is fully reliable")
     args = ap.parse_args(argv)
     try:
         model = TrustModel(epsilon=args.epsilon, q_by_class=_q_options(args.q), cutoff_age=args.cutoff,
                            use_sender_confidence=not args.no_sender_confidence)
         if args.hold is not None and not args.hold > 0.0:
             raise ValueError("--hold must be a positive number of seconds")
-        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise")
+        run = load_run(args.run_dir, noise=NoiseModel(), missing="drop" if args.drop_unmatched else "raise", weather=args.weather,
+                       sensors=not args.no_sensor_tables)
         motion = true_motion(run.truth, epsilon=model.epsilon) if args.motion else None          # first: it is fast and can refuse the run
         c = check_run(run, model, hold=args.hold, fit=args.fit)
     except (FileNotFoundError, ValueError) as err:

@@ -42,6 +42,8 @@ _MIX_1 = np.uint64(0xBF58476D1CE4E5B9)
 _MIX_2 = np.uint64(0x94D049BB133111EB)
 _US = 1_000_000                      # times are compared in whole microseconds
 _OBJ_SPAN = 10**13                   # room for the time in the combined key (object code, time)
+NOISE_STREAMS = range(1, 7)          # the streams of the generator used by standard_normals (up to 6 values per key)
+DETECTION_STREAM = 7                 # the stream used by the sensor tables (aoc.fusion.sensors): the same keys, another value
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,8 @@ def standard_normals(keys: np.ndarray, n: int = 4) -> np.ndarray:
             bits = _mix(keys + np.uint64(stream) * _GOLDEN)
         return ((bits >> np.uint64(12)).astype(np.float64) + 0.5) / 2.0**52           # strictly between 0 and 1
 
+    if n > len(NOISE_STREAMS):
+        raise ValueError("at most %d normal values per key: the other streams are taken" % len(NOISE_STREAMS))
     out = np.empty((len(keys), n))
     for pair in range((n + 1) // 2):                                                # Box-Muller, two values per pair
         radius = np.sqrt(-2.0 * np.log(uniform(2 * pair + 1)))
