@@ -299,3 +299,24 @@ def test_known_objects_with_a_hold_time():
     assert sorted(ticks[1.4].v2x["tx_station"]) == ["A", "A", "B"]                    # B is 0.5 s old: still in
     assert sorted(ticks[1.5].v2x["tx_station"]) == ["A", "A"]                         # B is 0.6 s old: out
     assert len(ticks[1.9].v2x) == 0
+
+
+def test_a_cpm_received_after_the_receiver_left_is_counted_not_a_problem():
+    """A vehicle that leaves is replayed up to its last true step. A CPM it received in the last fraction of a second of
+    its life (after that step) is never replayed; the check counts it instead of reporting a missing row."""
+    from aoc.io.synthetic import leaver, make_run
+
+    run = make_run(leaver())
+    assert check_run(run)["result"] == "PASS"
+    last = float(run.truth.loc[run.truth["obj_id"] == "c2", "t"].max())
+    late = run.obs[(run.obs["src"] == "v2x") & (run.obs["rx_station"] == "c2")].iloc[[-1]].copy()
+    late["t_sim"] = late["t_rx"] = last + 0.05                       # received after the last true step of c2
+    late.index = [run.obs.index.max() + 1]
+    with_late = Run(obs=pd.concat([run.obs, late]), truth=run.truth, noise=run.noise, info=run.info)
+    c = check_run(with_late)
+    assert c["result"] == "PASS" and c["v2x_rows_after_the_receiver_left"] == 1
+    early = late.copy()
+    early["t_sim"] = early["t_rx"] = last - 0.05                     # received before it: must be replayed
+    early.index = [run.obs.index.max() + 2]
+    c = check_run(Run(obs=pd.concat([run.obs, early]), truth=run.truth, noise=run.noise, info=run.info))
+    assert c["v2x_rows_after_the_receiver_left"] == 0 and c["result"] == "PASS"

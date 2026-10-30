@@ -70,6 +70,11 @@ the CPM rows of a sender whose sensors are not in the tables. The misses are tie
 noise: the same seed gives the same misses, and a subset of a run gives the same misses as the full run.
 `run.dropped` counts the rows left out at loading only; the misses are in `run.detection`.
 
+A vehicle that leaves the simulation is replayed up to its last true step. A CPM it received after that step, in
+the last fraction of a second of its life, is never replayed; `check_run` counts these rows
+(`v2x_rows_after_the_receiver_left`) and does not report them as missing. The occluded-VRU runs, where cars drive
+off the map, are the first with such rows.
+
 ## The noise model
 
 Why: in the Artery logs, the position of an object is exact, and it can be newer than the measurement

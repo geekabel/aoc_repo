@@ -342,10 +342,21 @@ def check_run(run: Run, period: float = 0.1) -> dict:
     is_v2x = (obs["src"] == "v2x").to_numpy(dtype=bool, na_value=False)
     own = (obs["gt_match_id"] == obs["rx_station"]).to_numpy(dtype=bool, na_value=False)
     out["v2x_rows_about_the_receiver"] = int((is_v2x & own).sum())
+    # a vehicle that leaves the simulation is replayed up to its last true step: a CPM received after that step
+    # (in the last fraction of a second of its life) is never replayed
+    period_us = int(round(period * _US))
+    last_true = run.truth.groupby("obj_id")["t"].max()
+    last_tick = (np.round(last_true.to_numpy(dtype=float) * _US).astype(np.int64) // period_us)
+    last_tick_of = dict(zip(last_true.index.astype(object), last_tick))
+    rx_last = obs["rx_station"].map(last_tick_of).to_numpy(dtype=float, na_value=np.inf)
+    row_tick = -((-np.round(obs["t_rx"].to_numpy(dtype=float) * _US).astype(np.int64)) // period_us)
+    after_left = is_v2x & ~own & (row_tick > rx_last)
+    out["v2x_rows_after_the_receiver_left"] = int(after_left.sum())
     if n_local != int((~is_v2x).sum()):
         problems.append("the replay gave %d sensor rows, the table holds %d" % (n_local, int((~is_v2x).sum())))
-    if n_new != int((is_v2x & ~own).sum()):
-        problems.append("the replay gave %d CPM rows, the table holds %d" % (n_new, int((is_v2x & ~own).sum())))
+    expected_new = int((is_v2x & ~own & ~after_left).sum())
+    if n_new != expected_new:
+        problems.append("the replay gave %d CPM rows, the table holds %d" % (n_new, expected_new))
     if n_no_ego > 0.01 * max(ticks, 1):
         problems.append("the true state of the vehicle is missing on %d ticks" % n_no_ego)
     out["problems"] = list(dict.fromkeys(problems))
@@ -396,6 +407,7 @@ def main(argv=None) -> int:
           % (c["local_rows"] / max(c["ticks"], 1), c["v2x_new_rows"] / max(c["ticks"], 1), c["v2x_known_mean"]))
     print("  oldest known CPM object: %.1f s" % c["oldest_known_age_s"])
     print("  CPM rows about the receiver itself, left out: %d" % c["v2x_rows_about_the_receiver"])
+    print("  CPM rows received after the receiver left the simulation, left out: %d" % c["v2x_rows_after_the_receiver_left"])
     print("  result:              %s%s" % (c["result"], "" if not c["problems"] else " (" + "; ".join(c["problems"]) + ")"))
     return 0 if not c["problems"] else 3
 
