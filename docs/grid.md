@@ -122,7 +122,7 @@ the channel.
 Rough sizes, scaled from the pilot of C5 (60 s, 25 vehicles, 80 000 observation rows, 1.4 MB of parquet): a run
 of the low density holds a few hundred thousand observation rows and some tens of MB of parquet; a run of the
 heaviest cell (high, 100, 10hz: 40 senders at 10 Hz with about 10 objects per CPM, 39 receivers each) about
-5 million `cpm_rx` rows, 15 to 20 million observation rows for the 8 drawn receivers and the 18 actors (each
+5 million `cpm_rx` rows, 15 to 20 million observation rows for the 8 drawn receivers and the 15 actors (each
 present for about 40 s), a few hundred MB of parquet, and CSV logs of about 1 GB before gzip. The whole grid is of the order of 10 to 20 GB of parquet plus the packed logs.
 `D1_RECEIVERS=4` halves the observations if the disk is short. The time of a run grows with the number of
 transmissions times the number of receivers: minutes for the low cells, tens of minutes for the heaviest ones;
@@ -148,6 +148,33 @@ grid: incomplete
 
 The script writes the index to `d1_index.csv` and the missing run numbers to `d1_missing.txt` in the results
 folder after every sitting.
+
+## The quality check (task D2)
+
+`aoc-gridcheck ROOT [--out runs.csv] [--events events.csv] [--cells cells.csv] [--jobs N] [--runs 0-11,36]` reads
+every exported run once (the summary, the nodes, the truth, the sent and received CPMs, and the rows about the
+pedestrians of the local and observations tables) and writes one row per run, one row per event (three per run)
+and one row per cell.
+
+The checks of a run, PASS when all hold: the export passed and its variables are those of its run number; the
+run covers 329.5 s or more; three pedestrians (`ped_1` to `ped_3`); the 15 actors of the events (the truck, the
+ego and the three helpers of each) have a middleware; the three egos and the nine helpers sent CPMs; the share of
+the background cars that sent at least one CPM is within 0.12 plus three binomial standard deviations of the
+penetration; the median CPM rate of the senders present at least 20 s matches the message configuration (2hz:
+1.7 to 2.3 Hz; 10hz: 8.5 to 10.5 Hz; etsi: 0.9 to 10.5 Hz); the mean number of cars after the warm-up is between
+half and twice the expected count of the density (15, 25, 40).
+
+The events are reported and counted, not checked: for each event, whether the ego saw the pedestrian with its own
+sensors, then lost it (the first gap of at least 1.5 s, the rule of C5), the distances when lost and seen again,
+whether that is an occlusion in the sense of C5 (gap of 1.5 to 6 s, lost within 100 m, seen again within 40 m),
+the CPM rows about the pedestrian the ego received during the gap, from the actors of the event and from the
+other cars, the age of the first one, and the cars that saw the pedestrian during four steps out of five of the
+gap (the witnesses). How many events of a cell have an occlusion and a CPM in the gap is a result of the grid
+(it depends on the penetration and on the traffic), not a defect. The table per cell gives the cars, the
+penetration as drawn, the CPM rate, the channel busy ratio, the received CPM rows, and the counts of events.
+
+The exit code is 0 when every run read passes. A run that cannot be read is reported with the error and counted
+as failed; the others are still read.
 
 ## What D1 does not do
 

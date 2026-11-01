@@ -14,6 +14,8 @@ Written:
   pilot        the pilot through the whole pipeline: metrics per run, the traces of the ego about the pedestrian, figure F6
                (C7, command ``aoc-pilot``)
   grid         the core grid of the plan: the cells and the run numbers, the index of the exported runs (D1, command ``aoc-grid``)
+  gridcheck    the quality check of the grid: every run against its cell, the three events of each run, a table per cell
+               (D2, command ``aoc-gridcheck``)
 
 Planned: the results database over the runs (task D4).
 """
