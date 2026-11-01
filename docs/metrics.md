@@ -28,7 +28,15 @@ from aoc.analysis.metrics import evaluate_run, EvaluationModel
 table = evaluate_run(run)                                   # one row per way, hold 5 s
 table = evaluate_run(run, EvaluationModel(hold=2.0, epsilon=2.0))
 table.set_index("way").loc["B3", "calibration_error"]
+table = evaluate_run(run, egos=["ego_1", "flow.3"], t_start=60.0)   # some receivers, nothing counted before 60 s (the grid of D3)
 ```
+
+The evaluation can also be continued from one receiver to the next, for a run too large to load whole (task D3):
+`EvaluationState` keeps the collectors, `evaluate_into(run, model, state, egos=[r], t_start=60.0)` adds a receiver loaded
+with `load_run(folder, receivers=[r])`, `state.rows(run_id, model)` gives the same rows as `evaluate_run` and
+`state.bins(run_id, model)` the reliability diagram of every way (10 bins: count, mean belief, share really there, mean
+plausibility). With `t_start`, the replay of a receiver starts one hold earlier so that its memory is the one of a full
+replay, and a receiver present before its first row counts from `t_start` on.
 
 ## The five ways
 

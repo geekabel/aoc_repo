@@ -13,13 +13,14 @@ This repository holds what the tasks produce.
 | `src/aoc/theory/` | The reliability curve, its averages, the needed message rates | A2, A3, A4 |
 | `src/aoc/io/` | Export of the Artery logs to parquet, schema of the observations table, synthetic streams | A8, B9 |
 | `src/aoc/fusion/` | Replay loader, noise model, sensor models and weather tables, time alignment, association, evidence, discount by age, combination, kinematic fusion | B2 to B7, C6 |
-| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs, the belief of one vehicle in one object over time and the pilot through the whole pipeline, the cells, the index and the quality check of the core grid. The aggregation over runs comes later | B5, B8, C1 to C3, C5, C7, D1, D2, D4 |
+| `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs, the belief of one vehicle in one object over time and the pilot through the whole pipeline, the cells, the index and the quality check of the core grid, the calibration of q and the replay of the grid. The aggregation over runs comes later | B5, B8, C1 to C3, C5, C7, D1 to D3, D4 |
 | `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, the occluded-VRU scenario, the core grid, scripts for the workstation | A6, A7, A8, C1, C5, D1 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
 | `figures/` | One script per figure of the papers: `f03_ages.py` (F3), `f04_ealpha.py` (F4) and `f06_money.py` (F6) so far | C2, C3, C7, D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
+| `results/` | The small tables brought back from the workstation: the check of the grid (D2), later the replay of the grid | D2, D3 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |
-| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, the occluded-VRU scenario, the sensor models and weather tables, the pilot and figure F6, the core grid and its check, notes about Artery, issue draft | A8, B2 to B9, C1 to C3, C5 to C7, D1, D2 |
+| `docs/` | Schema of the tables, the replay, the association, the evidence, the discount, the combination, the kinematic fusion, the metrics, the synthetic streams, the single-link scenario, the age law and E[alpha] checks, the occluded-VRU scenario, the sensor models and weather tables, the pilot and figure F6, the core grid and its check, the replay of the grid, notes about Artery, issue draft | A8, B2 to B9, C1 to C3, C5 to C7, D1 to D3 |
 
 ## Quick start
 
@@ -59,6 +60,8 @@ Other commands:
 | `aoc-vru RESULT_FOLDER [--pilot]` | Reads the exported occluded-VRU runs of C5 and prints the timeline of the event of each one (when the ego loses the pedestrian, who sees it, which CPMs reach the ego), with a PASS or FAIL |
 | `aoc-grid RESULT_FOLDER [--out index.csv]` | Indexes the exported runs of the core grid of D1 (one row per run: cell, seed, rows, result), says what is done and what is missing, cell by cell |
 | `aoc-gridcheck RESULT_FOLDER [--cells cells.csv]` | Reads every exported run of the core grid once and checks it against its cell (duration, actors, penetration as drawn, CPM rate, cars); reports the three events of each run and a table per cell (D2) |
+| `aoc-fit-q RESULT_FOLDER [--out qfit.csv]` | Fits the motion value q of the reliability curve per class on the calibration runs of the grid (seeds 10 and 11): the reports moved forward by their age against the truth (D3) |
+| `aoc-replay-grid RESULT_FOLDER --out DIR [--q-from qfit.csv]` | Replays the five ways on every run of the grid, one receiver at a time, from the warm-up on: the metrics per run, way and hold, the reliability diagrams, the belief of the egos in their pedestrian during the occlusion (D3; hours) |
 
 ## Typical uses
 

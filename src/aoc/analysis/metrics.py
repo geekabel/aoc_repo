@@ -160,9 +160,15 @@ class _Collector:
                     confident_share=round(len(self.confident_times) / self.entries, 4) if self.entries else None)
 
 
-def network_metrics(run: Run) -> dict:
-    """The network side of a run, from the observations table: channel busy ratio, delivery ratio, age at reception."""
+def network_values(run: Run, egos=None, t_start: float | None = None) -> dict:
+    """The raw values of the network side of a run, from the observations table: one channel busy ratio per vehicle and
+    tick, one delivery ratio per received message, the age of every received row; for the given receivers (default
+    all) from ``t_start`` on (default the whole run)."""
     obs = run.obs
+    if egos is not None:
+        obs = obs[obs["rx_station"].isin(list(egos))]
+    if t_start is not None:
+        obs = obs[obs["t_sim"].to_numpy(dtype=float) >= t_start - 1e-9]
     received = (obs["src"] == "v2x").to_numpy(dtype=bool, na_value=False)
 
     def one_per(column: str, keys: list[str], rows=None) -> np.ndarray:
@@ -177,9 +183,60 @@ def network_metrics(run: Run) -> dict:
     cbr = one_per("cbr", ["rx_station", "t_sim"])                                  # one value per vehicle and per time
     pdr = one_per("pdr_window", ["rx_station", "tx_station", "t_rx"], received)    # one value per received message
     age = obs["age"].to_numpy(dtype=float, na_value=np.nan)[received]
-    quiet = lambda values, f: round(float(f(values[np.isfinite(values)])), 4) if np.isfinite(values).any() else None
-    return dict(cbr_mean=quiet(cbr, np.mean), pdr_mean=quiet(pdr, np.mean), age_median=quiet(age, np.median),
-                age_p95=quiet(age, lambda v: np.percentile(v, 95)), received_rows=int(received.sum()))
+    return dict(cbr=cbr[np.isfinite(cbr)], pdr=pdr[np.isfinite(pdr)], age=age[np.isfinite(age)], received_rows=int(received.sum()))
+
+
+def network_summary(values: dict) -> dict:
+    """The network metrics from the raw values: mean channel busy ratio, mean delivery ratio, median and 95th percentile of the age."""
+    quiet = lambda v, f: round(float(f(v)), 4) if len(v) else None
+    return dict(cbr_mean=quiet(values["cbr"], np.mean), pdr_mean=quiet(values["pdr"], np.mean), age_median=quiet(values["age"], np.median),
+                age_p95=quiet(values["age"], lambda v: np.percentile(v, 95)), received_rows=int(values["received_rows"]))
+
+
+def network_metrics(run: Run) -> dict:
+    """The network side of a run, from the observations table: channel busy ratio, delivery ratio, age at reception."""
+    return network_summary(network_values(run))
+
+
+class EvaluationState:
+    """What the evaluation accumulates over the receivers of a run: one collector per way, the counts, the entries of
+    the time to confident, the network values. A state can be continued from one receiver to the next, so a run can
+    be loaded one receiver at a time (task D3)."""
+
+    def __init__(self):
+        self.collectors = {way: _Collector() for way in WAYS}
+        self.entered: dict[tuple, dict] = {}            # (way, ego, true object, time of entry) -> {"done": reached the confident belief}
+        self.counts = dict(ticks=0, objects=0, no_ego_state=0)
+        self.network = dict(cbr=np.zeros(0), pdr=np.zeros(0), age=np.zeros(0), received_rows=0)
+        self.seconds = 0.0
+
+    def add_network(self, values: dict) -> None:
+        for key in ("cbr", "pdr", "age"):
+            self.network[key] = np.concatenate([self.network[key], np.asarray(values[key], dtype=float)])
+        self.network["received_rows"] += int(values["received_rows"])
+
+    def rows(self, run_id: str, model: "EvaluationModel") -> pd.DataFrame:
+        """One row per way with the metrics of the plan."""
+        network = network_summary(self.network)
+        rows = []
+        for way in WAYS:
+            rows.append(dict(run_id=run_id, way=way, name=WAY_NAMES[way], hold=model.hold, ticks=self.counts["ticks"], objects=self.counts["objects"],
+                             no_ego_state=self.counts["no_ego_state"], seconds=round(self.seconds, 1), **network, **self.collectors[way].row()))
+        return pd.DataFrame(rows)
+
+    def bins(self, run_id: str, model: "EvaluationModel") -> pd.DataFrame:
+        """The reliability diagram of each way: one row per way and bin of the belief (count, mean belief, share really there,
+        mean plausibility), the data of figure F5."""
+        rows = []
+        for way in WAYS:
+            c = self.collectors[way]
+            for b in range(c.bins.bins):
+                n = int(c.bins.count[b])
+                rows.append(dict(run_id=run_id, way=way, hold=model.hold, bin=b, low=b / c.bins.bins, high=(b + 1) / c.bins.bins, count=n,
+                                 belief_mean=round(float(c.bins.confidence[b] / n), 5) if n else None,
+                                 share_there=round(float(c.bins.hits[b] / n), 5) if n else None,
+                                 plausibility_mean=round(float(c.bins_pl[b] / n), 5) if n else None))
+        return pd.DataFrame(rows)
 
 
 def _distance_confidence(cov: np.ndarray, epsilon: float) -> np.ndarray:
@@ -190,22 +247,34 @@ def _distance_confidence(cov: np.ndarray, epsilon: float) -> np.ndarray:
         return -np.expm1(-epsilon**2 / (2.0 * largest))
 
 
-def evaluate_run(run: Run, model: EvaluationModel | None = None) -> pd.DataFrame:
-    """One row per way (B0 to B4) with the metrics of the plan, for one run."""
+def evaluate_run(run: Run, model: EvaluationModel | None = None, egos=None, t_start: float | None = None) -> pd.DataFrame:
+    """One row per way (B0 to B4) with the metrics of the plan, for one run.
+
+    egos     the receivers to evaluate (default: every vehicle with a row); t_start: count from this time on (default:
+             the whole run; the replay then starts one hold earlier, so the memory is the same as in a full replay).
+    """
     model = model or EvaluationModel()
+    state = evaluate_into(run, model, EvaluationState(), egos=egos, t_start=t_start)
+    return state.rows(run.info.get("run_id", ""), model)
+
+
+def evaluate_into(run: Run, model: EvaluationModel, state: EvaluationState, egos=None, t_start: float | None = None) -> EvaluationState:
+    """Runs the pipeline for the given receivers of a run and adds what it measures to the state. Returns the state."""
     base = model.trust.for_run(run)
     trust = {"B0": replace(base, law="full_trust"), "B1": replace(base, law="cutoff"), "B3": base, "B4": base}
     combination = {"B0": replace(model.combination, cpm_rule="conjunctive"), "B1": replace(model.combination, cpm_rule="conjunctive"),
                    "B3": model.combination, "B4": replace(model.combination, cpm_rule="conjunctive")}
-    collectors = {way: _Collector() for way in WAYS}
+    collectors, entered, counts = state.collectors, state.entered, state.counts
     last_seen = run.truth.groupby("obj_id")["t"].max()
-    entered: dict[tuple, dict] = {}                    # (ego, true object) -> {"t": time of entry, "done": reached the confident belief}
-    counts = dict(ticks=0, objects=0, no_ego_state=0)
+    egos = list(run.egos) if egos is None else [str(e) for e in egos]
+    replay_from = None if t_start is None else max(0.0, t_start - (model.hold if model.hold is not None else t_start))
     start = time.perf_counter()
-    for ego in run.egos:
+    for ego in egos:
         previous_in_range: set = set()
         pending: dict[str, float] = {}                 # true object -> time of entry, until it is confident or leaves the range
-        for tick in run.replay(ego, period=model.period, hold=model.hold):
+        for tick in run.replay(ego, period=model.period, hold=model.hold, t_start=replay_from):
+            if t_start is not None and tick.t < t_start - 1e-9:
+                continue                               # the memory fills up during the hold before t_start; nothing is counted
             counts["ticks"] += 1
             if tick.ego_state is None:
                 counts["no_ego_state"] += 1
@@ -287,14 +356,9 @@ def evaluate_run(run: Run, model: EvaluationModel | None = None) -> pd.DataFrame
             for name in list(pending):                 # an entry is closed for every way once all five reached it, or when it leaves
                 if all(entered.get((way, ego, name, pending[name]), {"done": True})["done"] for way in WAYS):
                     pending.pop(name)
-    seconds = time.perf_counter() - start
-    network = network_metrics(run)
-    rows = []
-    for way in WAYS:
-        row = dict(run_id=run.info.get("run_id", ""), way=way, name=WAY_NAMES[way], hold=model.hold, ticks=counts["ticks"], objects=counts["objects"],
-                   no_ego_state=counts["no_ego_state"], seconds=round(seconds, 1), **network, **collectors[way].row())
-        rows.append(row)
-    return pd.DataFrame(rows)
+    state.seconds += time.perf_counter() - start
+    state.add_network(network_values(run, egos, t_start))
+    return state
 
 
 def main(argv=None) -> int:

@@ -125,13 +125,17 @@ def _size(p: np.ndarray, criterion: str) -> np.ndarray:
     return np.linalg.det(p) if criterion == "det" else np.trace(p, axis1=1, axis2=2)
 
 
-def ci_weight(pa, pb, criterion: str = "det", steps: int = 40) -> np.ndarray:
+def ci_weight(pa, pb, criterion: str = "det", steps: int = 40, checked: bool = False) -> np.ndarray:
     """The weight omega of covariance intersection for each pair of covariances.
 
     It is the weight that makes the fused covariance smallest by the criterion ("det" or "trace"). It is found by
     a golden-section search on [0, 1]: the size of the fused covariance has a single minimum in omega
     (the logarithm of the determinant of a convex combination of matrices is concave, and the trace of its inverse
     is convex). With 40 steps the weight is found within 1e-8.
+
+    ``checked`` says that the covariances were checked by the caller (symmetric, positive definite): the check is
+    not done again. For the determinant, the size of the fused covariance is the inverse of the determinant of the
+    fused information, so no inversion is needed in the search (task D3: the search is the cost of the grid).
     """
     if criterion not in CRITERIA:
         raise ValueError("the criterion must be one of: %s" % ", ".join(CRITERIA))
@@ -140,12 +144,16 @@ def ci_weight(pa, pb, criterion: str = "det", steps: int = 40) -> np.ndarray:
         pa, pb = pa[None], pb[None]
     if pa.ndim != 3 or pa.shape != pb.shape or pa.shape[1] != pa.shape[2] or not (np.isfinite(pa).all() and np.isfinite(pb).all()):
         raise ValueError("two tables of covariances (n, d, d) of the same shape are needed")
-    _check_covariances(pa)
-    _check_covariances(pb)
+    if not checked:
+        _check_covariances(pa)
+        _check_covariances(pb)
     ia, ib = _information(pa), _information(pb)
 
     def size(w):
-        return _size(np.linalg.inv(w[:, None, None] * ia + (1.0 - w[:, None, None]) * ib), criterion)
+        info = w[:, None, None] * ia + (1.0 - w[:, None, None]) * ib
+        if criterion == "det":
+            return 1.0 / np.linalg.det(info)
+        return _size(np.linalg.inv(info), criterion)
 
     low, high = np.zeros(len(pa)), np.ones(len(pa))
     c, d = high - GOLDEN * (high - low), low + GOLDEN * (high - low)
@@ -184,7 +192,7 @@ def covariance_intersection(xa, pa, xb, pb, omega=None, criterion: str = "det", 
     """
     xa, pa, xb, pb, single = _check_pair(xa, pa, xb, pb)
     if omega is None:
-        w = ci_weight(pa, pb, criterion, steps)
+        w = ci_weight(pa, pb, criterion, steps, checked=True)
     else:
         w = np.broadcast_to(np.asarray(omega, dtype=float), (len(xa),)).copy()
         if not np.isfinite(w).all() or (w < 0.0).any() or (w > 1.0).any():

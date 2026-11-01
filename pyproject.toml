@@ -38,6 +38,8 @@ aoc-sensors = "aoc.fusion.sensors:main"
 aoc-pilot = "aoc.analysis.pilot:main"
 aoc-grid = "aoc.analysis.grid:main"
 aoc-gridcheck = "aoc.analysis.gridcheck:main"
+aoc-fit-q = "aoc.analysis.qfit:main"
+aoc-replay-grid = "aoc.analysis.gridreplay:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

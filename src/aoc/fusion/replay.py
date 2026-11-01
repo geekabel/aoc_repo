@@ -210,7 +210,7 @@ def run_weather(obs: pd.DataFrame, info: dict) -> str | None:
 
 
 def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, missing: str = "raise",
-             sensors: SensorTables | None | bool = True, weather: str | None = None) -> Run:
+             sensors: SensorTables | None | bool = True, weather: str | None = None, receivers=None) -> Run:
     """Loads one exported run: the folder that holds observations.parquet and truth.parquet.
 
     noise    True: the default noise model (sigma_x 0.3 m, sigma_v 0.5 m/s, seed 0).
@@ -223,6 +223,10 @@ def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, 
     weather  the weather of the replay: "clear" or "rain" (or any weather of the tables). None: the weather
              the exporter wrote (option --weather), else "clear". It is kept in ``run.weather`` for the
              reliability tables of the discounting.
+    receivers  None: every row. A list of vehicles: only their received rows (``src`` v2x) are read, with the
+             sensor rows of every vehicle (the sensor tables need the sender's own rows to decide the fate of
+             its CPM rows, and the sensor rows are few). The grid of D1 is replayed one receiver at a time this
+             way: the received rows of a dense run are tens of millions.
     """
     if missing not in ("raise", "drop"):
         raise ValueError('missing must be "raise" or "drop"')
@@ -230,7 +234,16 @@ def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, 
     for name in ("observations.parquet", "truth.parquet"):
         if not os.path.isfile(os.path.join(folder, name)):
             raise FileNotFoundError("%s not found in %s. Export the run first with aoc-export." % (name, folder))
-    obs = pd.read_parquet(os.path.join(folder, "observations.parquet"))
+    if receivers is None:
+        obs = pd.read_parquet(os.path.join(folder, "observations.parquet"))
+    else:
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
+        wanted = [str(r) for r in receivers]
+        table = pq.read_table(os.path.join(folder, "observations.parquet"),
+                              filters=pc.field("src") != "v2x" if not wanted else (pc.field("src") != "v2x") | pc.field("rx_station").isin(wanted))
+        obs = table.to_pandas()
+        obs = obs[(obs["src"] != "v2x") | obs["rx_station"].isin(wanted)].reset_index(drop=True)
     truth = pd.read_parquet(os.path.join(folder, "truth.parquet"))
     info = {}
     if os.path.isfile(os.path.join(folder, "export_summary.json")):
