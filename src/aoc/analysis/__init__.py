@@ -13,6 +13,7 @@ Written:
   trace        the belief of one vehicle in one true object over time, with V2X and with its own sensors only (C7)
   pilot        the pilot through the whole pipeline: metrics per run, the traces of the ego about the pedestrian, figure F6
                (C7, command ``aoc-pilot``)
+  grid         the core grid of the plan: the cells and the run numbers, the index of the exported runs (D1, command ``aoc-grid``)
 
 Planned: the results database over the runs (task D4).
 """

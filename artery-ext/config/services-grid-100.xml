@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Core grid (task D1), penetration 100%: every car runs CA and CP, the truck of the events included (no filter). -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="artery.envmod.service.CpService" name="CP">
+		<listener port="2009" />
+	</service>
+</services>

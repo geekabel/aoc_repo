@@ -25,6 +25,12 @@ plus `observations.parquet` and `export_summary.json`.
 - The parquet versions add computed columns: absolute position of each CPM object, measurement time,
   true object behind it, delay, distance between sender and receiver.
 - `export_summary.json` holds the counts and the checks of the export. The exporter ends with PASS or FAIL.
+- `aoc-export RUN --receivers auto:N` (or a list of SUMO ids) keeps the observations of the actors of the scripted events
+  (`ego`, `helper_a`, `helper_b`, `helper_c`, `truck`, with or without `_<k>`) and of N other senders of CPMs drawn with
+  the seed of the run; the other tables, `local` included, keep every vehicle. The grid of D1
+  uses it: the observations of every receiver of a dense run would be tens of millions of rows. The summary lists
+  the receivers kept under `receivers`; `local_rows_of_receivers` and `local_rows_all` give the share of the sensor
+  rows kept. Default: `all`.
 
 ## The observations table
 

@@ -20,13 +20,15 @@ Output, in <input>/parquet:
 Frame: x to the east, y to the south, in meters (the frame of Artery and OMNeT++).
 Times are simulation times in seconds.
 
-Usage:  python a8_export.py RUN_DIR [--out OUT_DIR] [--weather NAME] [--pdr-window 1.0]
+Usage:  python a8_export.py RUN_DIR [--out OUT_DIR] [--weather NAME] [--pdr-window 1.0] [--receivers all|auto:N|id,id,...]
 Needs:  pandas and pyarrow.
 """
 import argparse
 import json
 import math
 import os
+import random
+import re
 import sys
 
 import numpy as np
@@ -34,7 +36,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-EXPORT_VERSION = "1.2"
+EXPORT_VERSION = "1.3"
+ACTOR_PATTERN = re.compile(r"(ego|helper_[abc]|truck)(_\d+)?")   # the actors of the scripted events (C5 and the grid of D1)
 
 # station types of ETSI (vanetza::geonet::StationType)
 STATION_TYPES = {0: "unknown", 1: "pedestrian", 2: "cyclist", 3: "moped", 4: "motorcycle", 5: "passenger_car", 6: "bus",
@@ -126,6 +129,33 @@ def cpm_class(label):
     return kind
 
 
+def choose_receivers(option, tx, local, nodes, seed):
+    """The receivers whose observations are written: None for all, else a set of SUMO ids.
+
+    'auto:N': the actors of the scripted events (every vehicle whose id is 'ego', 'helper_a', 'helper_b', 'helper_c' or
+    'truck', with or without a suffix '_<k>'), plus N other vehicles drawn at random (with the seed of the run) among
+    those that sent a CPM (the equipped ones); when fewer than N sent, among all vehicles with a middleware. A
+    comma-separated list names the receivers directly.
+    """
+    option = (option or "all").strip()
+    if option == "all":
+        return None
+    if option.startswith("auto:"):
+        try:
+            n = int(option[5:])
+        except ValueError:
+            die("--receivers auto:N needs a whole number, not %r" % option[5:])
+        candidates = sorted(set(tx["tx_id"].dropna().astype(str))) if len(tx) else []
+        actors = sorted({v for v in set(local["node_id"].dropna().astype(str)) | set(nodes["node_id"].dropna().astype(str)) | set(candidates)
+                         if ACTOR_PATTERN.fullmatch(v)})
+        pool = [v for v in candidates if v not in actors]
+        if len(pool) < n:
+            pool = sorted({v for v in nodes["node_id"].dropna().astype(str)} - set(actors))
+        drawn = random.Random(int(seed)).sample(pool, min(n, len(pool))) if pool else []
+        return set(actors) | set(drawn)
+    return {v.strip() for v in option.split(",") if v.strip()}
+
+
 def iteration_variables(text):
     """The iteration variables of OMNeT++ as a dictionary: '$T=0.5s, $p=0.3' gives {'T': '0.5s', 'p': '0.3'}."""
     out = {}
@@ -160,6 +190,10 @@ def main():
     ap.add_argument("--out", default=None, help="output folder (default: RUN_DIR/parquet)")
     ap.add_argument("--weather", default="", help="weather label stored in the observations table")
     ap.add_argument("--pdr-window", type=float, default=1.0, help="window of pdr_window in s (default 1.0)")
+    ap.add_argument("--receivers", default="all",
+                    help="whose observations to write: 'all' (default), 'auto:N' (the actors of the scripted events, ego*, helper_*, truck*, "
+                         "plus N other senders of CPMs drawn with the seed of the run) or a comma-separated list of SUMO ids. The other "
+                         "tables hold every vehicle. Task D1: the observations of every receiver of a dense run would be far too many rows.")
     args = ap.parse_args()
 
     run_dir = os.path.abspath(args.run_dir)
@@ -351,18 +385,32 @@ def main():
     local["src"] = local["category"].map(SOURCES).fillna(local["category"]).astype("string")
     local = with_cbr(local, "t", "node_id")
 
+    # ---------------------------------------------------------------- the receivers of the observations table (task D1)
+    # the local table itself keeps every vehicle; only the observations table is cut down to the receivers
+    receivers = choose_receivers(args.receivers, tx, local, nodes, seed)
+    if receivers is not None:
+        chosen = pd.Series(sorted(receivers), dtype="string")
+        local_obs = local[local["node_id"].isin(chosen)]
+        rx_obs = rx[rx["rx_id"].isin(chosen)]
+        checks["receivers"] = int(len(chosen))
+        checks["local_rows_of_receivers"] = int(len(local_obs))
+        checks["local_rows_all"] = int(len(local))
+    else:
+        local_obs, rx_obs = local, rx
+
     # ---------------------------------------------------------------- observations
-    n_loc = len(local)
+    n_loc = len(local_obs)
     obs_local = pd.DataFrame({
-        "t_sim": local["t"], "rx_station": local["node_id"], "src": local["src"], "tx_station": pd.array([pd.NA] * n_loc, dtype="string"),
-        "obj_id": local["track_id"].astype("string"), "class": local["class"], "x": local["x"], "y": local["y"],
-        "vx": local["vx"], "vy": local["vy"], "sender_conf": np.nan, "t_meas": local["t_last"], "t_rx": local["t"],
-        "cbr": local["cbr"], "pdr_window": np.nan, "gt_match_id": local["obj_id"], "sensor": local["sensor"],
-        "gt_dist": np.where(local["x"].notna(), 0.0, np.nan), "t_pos": local["t"],
+        "t_sim": local_obs["t"], "rx_station": local_obs["node_id"], "src": local_obs["src"],
+        "tx_station": pd.array([pd.NA] * n_loc, dtype="string"),
+        "obj_id": local_obs["track_id"].astype("string"), "class": local_obs["class"], "x": local_obs["x"], "y": local_obs["y"],
+        "vx": local_obs["vx"], "vy": local_obs["vy"], "sender_conf": np.nan, "t_meas": local_obs["t_last"], "t_rx": local_obs["t"],
+        "cbr": local_obs["cbr"], "pdr_window": np.nan, "gt_match_id": local_obs["obj_id"], "sensor": local_obs["sensor"],
+        "gt_dist": np.where(local_obs["x"].notna(), 0.0, np.nan), "t_pos": local_obs["t"],
         "tx_station_id": pd.array([pd.NA] * n_loc, dtype="Int64"), "reference_time_ms": pd.array([pd.NA] * n_loc, dtype="Int64"),
-        "meas_src": local["src"],
+        "meas_src": local_obs["src"],
     })
-    v2x = rx[rx["t_tx"].notna()].merge(
+    v2x = rx_obs[rx_obs["t_tx"].notna()].merge(
         obj[key + ["object_id", "class", "x", "y", "vx", "vy", "sender_conf", "t_meas", "t_pos", "gt_match_id", "gt_dist", "meas_src"]],
         on=key, how="inner")
     obs_v2x = pd.DataFrame({
@@ -412,6 +460,7 @@ def main():
         "export_version": EXPORT_VERSION, "logger_version": run.get("logger_version", ""), "run_dir": run_dir, "out_dir": out,
         "run_id": run_id, "config": run.get("config", ""), "seed": seed, "weather": args.weather,
         "iteration_vars": run.get("iteration_vars", ""), "variables": variables,
+        "receivers": None if receivers is None else sorted(receivers), "receivers_option": args.receivers,
         "t_first_s": float(steps[0]), "t_last_s": float(steps[-1]), "steps": int(len(steps)),
         "objects_true": int(truth["obj_id"].nunique()), "vehicles_with_middleware": int(nodes["node_id"].nunique()),
         "rows": {"truth": int(len(truth)), "cpm_tx": int(len(tx)), "cpm_obj": int(len(obj)), "cpm_rx": int(len(rx)),
