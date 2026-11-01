@@ -11,11 +11,12 @@ The installation lives in `~/aoc-sim`. Before a manual run, load its settings wi
 | Folder | Content |
 | --- | --- |
 | `aoc/` | The logger (`AocLogger`), the network `AocWorld` that contains it, and `AocCpService`: the CP service of Artery with a controlled loss of received CPMs (task C1) |
-| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
+| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `services-grid-10/25/50/100.xml` (CAM and CPM on a share of the cars, the grid of D1), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
 | `link/` | The single-link validation scenario of task C1: the road (SUMO), the three cars, the OMNeT++ configuration with the grid T x p |
 | `vru/` | The occluded-VRU scenario of task C5 (E1 of the plan): the intersection, the buildings, the alley, the seven actors, the OMNeT++ configuration. The road files are written by `tools/make_vru_scenario.py` |
+| `grid/` | The core grid of task D1 (E3 of the plan): the road of C5 with background traffic at three densities and the event three times per run, the OMNeT++ configuration with the factors density x penetration x message config x 12 seeds. The route files are written by `tools/make_grid_scenario.py` |
 | `scripts/` | The scripts to run on the workstation |
-| `tools/` | The templates of the scripts, `build_scripts.py`, which builds them, and `make_vru_scenario.py`, which writes the road of the VRU scenario |
+| `tools/` | The templates of the scripts, `build_scripts.py`, which builds them, `make_vru_scenario.py`, which writes the road of the VRU scenario, and `make_grid_scenario.py`, which writes the traffic of the grid |
 
 ## The scripts
 
@@ -28,6 +29,7 @@ Each script is one file. Copy it to the workstation and run it with `bash`. Each
 | `scripts/a8_logger.sh` | Adds the logger to Artery, runs the example with it, exports the logs to parquet | a few minutes the first time |
 | `scripts/c1_link.sh` | Runs the single-link scenario on the grid of the plan (16 runs), exports them, checks the period and the loss of each one | 15 to 40 minutes; `--quick` for one run of 30 s |
 | `scripts/c5_vru.sh` | Runs the occluded-VRU pilot (1, 2, 3 helpers x 2 seeds, 6 runs of 60 s), exports the runs, checks that the occlusion event is in the logs of each one | a few minutes; `--quick` for one run of 45 s |
+| `scripts/d1_grid.sh` | Runs the core grid (432 runs of 330 s) in one fixed results folder, exports each run as it ends, packs its logs, indexes what is done; stop and start again at will, `--cell` and `--runs` for a part | hours to a day; `--quick` for one run of 60 s |
 
 Options are environment variables written in front of the command. `bash SCRIPT --help` lists them. The most useful ones:
 
@@ -37,7 +39,7 @@ A8_SENSORS=example bash a8_logger.sh        # use the sensors of the Artery exam
 bash a8_logger.sh --export FOLDER           # export one run again
 ```
 
-`a7_cp_demo.sh`, `a8_logger.sh`, `c1_link.sh` and `c5_vru.sh` hold copies of files of this repository. Do not edit them by hand.
+`a7_cp_demo.sh`, `a8_logger.sh`, `c1_link.sh`, `c5_vru.sh` and `d1_grid.sh` hold copies of files of this repository. Do not edit them by hand.
 Change the source file, then run `make scripts`.
 
 ## The logger

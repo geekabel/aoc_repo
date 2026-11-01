@@ -36,6 +36,7 @@ aoc-ealpha = "aoc.analysis.ealpha:main"
 aoc-vru = "aoc.analysis.vru:main"
 aoc-sensors = "aoc.fusion.sensors:main"
 aoc-pilot = "aoc.analysis.pilot:main"
+aoc-grid = "aoc.analysis.grid:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

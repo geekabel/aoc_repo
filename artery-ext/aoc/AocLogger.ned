@@ -23,4 +23,6 @@ simple AocLogger
         bool logTruth = default(true);
         bool logLocal = default(true);
         bool logChannelLoad = default(true);
+        string label = default("");         // free text, not read by the code: a place to hang an iteration variable
+                                            // of the configuration so that it is recorded in run.csv (task D1: the message config)
 }

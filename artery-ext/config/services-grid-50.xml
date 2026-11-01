@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Core grid (task D1), penetration 50%: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
+     0.50, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
+     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
+     take part in the draw. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="artery.envmod.service.CpService" name="CP">
+		<listener port="2009" />
+		<filters operator="or">
+			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
+			<penetration rate="0.50" />
+		</filters>
+	</service>
+</services>
