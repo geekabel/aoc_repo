@@ -35,8 +35,10 @@ The evaluation can also be continued from one receiver to the next, for a run to
 `EvaluationState` keeps the collectors, `evaluate_into(run, model, state, egos=[r], t_start=60.0)` adds a receiver loaded
 with `load_run(folder, receivers=[r])`, `state.rows(run_id, model)` gives the same rows as `evaluate_run` and
 `state.bins(run_id, model)` the reliability diagram of every way (10 bins: count, mean belief, share really there, mean
-plausibility). With `t_start`, the replay of a receiver starts one hold earlier so that its memory is the one of a full
-replay, and a receiver present before its first row counts from `t_start` on.
+plausibility). With `t_start`, the objects already in range at `t_start` are not entries (an entry there would have a
+time to confident of zero: the artefact every replay has at the first tick of a receiver, where everything in range
+enters at once), a receiver present before its first row counts from `t_start` on, and a receiver that appears later
+counts from its first true step.
 
 ## The five ways
 

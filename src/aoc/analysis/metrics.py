@@ -272,9 +272,20 @@ def evaluate_into(run: Run, model: EvaluationModel, state: EvaluationState, egos
     for ego in egos:
         previous_in_range: set = set()
         pending: dict[str, float] = {}                 # true object -> time of entry, until it is confident or leaves the range
-        for tick in run.replay(ego, period=model.period, hold=model.hold, t_start=replay_from):
+        first = replay_from
+        if replay_from is not None:                    # a receiver that appears after t_start is replayed from its first true step
+            mine = run.truth.loc[(run.truth["obj_id"] == ego).to_numpy(dtype=bool), "t"]
+            if len(mine):
+                first = max(replay_from, float(mine.min()))
+        for tick in run.replay(ego, period=model.period, hold=model.hold, t_start=first):
             if t_start is not None and tick.t < t_start - 1e-9:
-                continue                               # the memory fills up during the hold before t_start; nothing is counted
+                # the ticks before t_start are not counted; the objects already in range are noted, so that they are not
+                # "entries" at t_start with a time to confident of zero
+                if tick.ego_state is not None:
+                    tx, ty = tick.truth["x"].to_numpy(dtype=float), tick.truth["y"].to_numpy(dtype=float)
+                    inside = np.hypot(tx - tick.ego_state["x"], ty - tick.ego_state["y"]) <= model.radius
+                    previous_in_range = {name for name, ok in zip(tick.truth["obj_id"].to_numpy(dtype=object), inside) if ok}
+                continue
             counts["ticks"] += 1
             if tick.ego_state is None:
                 counts["no_ego_state"] += 1

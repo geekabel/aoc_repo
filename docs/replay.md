@@ -29,7 +29,7 @@ from aoc.fusion.noise import NoiseModel
 
 run = load_run("RUN_FOLDER", noise=NoiseModel(sigma_x=0.3, sigma_v=0.5, seed=1))
 print(run.egos)                                   # the vehicles of the run
-one = load_run("RUN_FOLDER", receivers=["ego_1"])  # its received rows only, with the sensor rows of every vehicle (task D3)
+one = load_run("RUN_FOLDER", receivers=["ego_1"])  # its received rows only, with every sensor row of the table (task D3)
 
 for tick in run.replay("flow0.0", period=0.1):    # one tick every 0.1 s
     tick.t            # time of the tick in s

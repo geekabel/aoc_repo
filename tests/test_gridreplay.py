@@ -66,8 +66,11 @@ def test_the_evaluation_one_receiver_at_a_time_equals_the_whole_one(exported_run
     cols = [c for c in whole.columns if c not in ("seconds", "run_id")]
     a, b = whole[cols].reset_index(drop=True), parts[cols].reset_index(drop=True)
     assert a.columns.equals(b.columns) and all((a[c].isna() == b[c].isna()).all() and (a[c].dropna() == b[c].dropna()).all() for c in cols)
-    later = evaluate_run(load_run(data), model, egos=egos, t_start=10.0)
-    assert later["ticks"].iloc[0] < whole["ticks"].iloc[0] and later["ticks"].iloc[0] == 2 * 41                 # 10.0 to 14.0 s, two receivers
+    run = load_run(data)
+    later = evaluate_run(run, model, egos=egos, t_start=10.0)
+    steps = sum(int(((run.truth["obj_id"] == e) & (run.truth["t"] >= 10.0 - 1e-9)).sum()) for e in egos)          # the receivers' own steps from 10 s on
+    assert later["ticks"].iloc[0] < whole["ticks"].iloc[0] and later["ticks"].iloc[0] == steps
+    assert later["entries"].iloc[0] < whole["entries"].iloc[0]                                                     # what was in range at 10 s is no entry
     bins = state.bins("", model)
     assert len(bins) == 50 and bins["count"].sum() == 5 * whole["fused_objects"].iloc[0] and set(bins["way"]) == set(whole["way"])
 

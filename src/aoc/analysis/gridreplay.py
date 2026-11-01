@@ -6,12 +6,13 @@ Dempster only), and the metrics of B8 are written down per run and per way: cali
 belief, coverage, sharpness, awareness ratio, RMSE, stale-confidence rate, ghost rate, time to confident, with the
 network side (channel busy ratio, delivery ratio, age at reception). The reliability diagram of every way (the data of
 figure F5) and the belief of each ego in its pedestrian during the occlusion (the events of the grid, the data behind
-F6 at scale) come with them.
+F6 at scale; traced with the first hold of ``--holds``) come with them.
 
 What the replay does with the grid:
 
-  - the warm-up is left out: nothing is counted before 60 s (the replay starts one hold earlier, so the memory is the
-    one of a full replay);
+  - the warm-up is left out: nothing is counted before 60 s (the memory of a receiver at 60 s is the one of a full
+    replay: the replay loads every earlier report and the hold drops the old ones; the objects already in range at
+    60 s are not counted as entries);
   - the receiver forgets a received object older than the hold, 5 s by default, the same for every way; 2 s and 10 s
     are run as a check on a part of the grid (``--holds 2,10 --runs ...``);
   - the motion value q of the reliability curve comes from the calibration runs (``aoc-fit-q``, option ``--q``); the
@@ -77,6 +78,13 @@ def receivers_of(info: dict, option: str, folder: str | None = None) -> list[str
     return egos + others[:n]
 
 
+def _last(values: pd.Series):
+    """The last finite value of a series, rounded, or None."""
+    v = values.to_numpy(dtype=float)
+    v = v[np.isfinite(v)]
+    return round(float(v[-1]), 4) if v.size else None
+
+
 def event_rows(run, ego: str, ped: str, model: EvaluationModel) -> list[dict]:
     """The belief of the ego in its pedestrian around the occlusion, per way: the mean, the lowest and the last value
     with V2X during the gap, the last value with the own sensors only, the CPM rows received in the gap."""
@@ -99,8 +107,7 @@ def event_rows(run, ego: str, ped: str, model: EvaluationModel) -> list[dict]:
         rows.append(dict(base, way=way,
                          v2x_gap_mean=round(float(v2x["bel"].mean()), 4) if len(v2x) and v2x["bel"].notna().any() else None,
                          v2x_gap_min=round(float(v2x["bel"].min()), 4) if len(v2x) and v2x["bel"].notna().any() else None,
-                         v2x_gap_end=round(float(v2x["bel"].iloc[-1]), 4) if len(v2x) and np.isfinite(v2x["bel"].iloc[-1]) else None,
-                         own_gap_end=round(float(own["bel"].iloc[-1]), 4) if len(own) and np.isfinite(own["bel"].iloc[-1]) else None,
+                         v2x_gap_end=_last(v2x["bel"]), own_gap_end=_last(own["bel"]),
                          own_gap_min=round(float(own["bel"].min()), 4) if len(own) and own["bel"].notna().any() else None,
                          cpm_rows_in_gap=int(v2x["n_new"].sum()) if len(v2x) else 0,
                          groups_max=int(v2x["groups"].max()) if len(v2x) else 0))
@@ -253,7 +260,8 @@ def main(argv=None) -> int:
     ap.add_argument("--q-from", default=None, metavar="QFIT_CSV", help="read the fitted motion values from the table written by aoc-fit-q --out")
     ap.add_argument("--runs", default=None, help="only these run numbers, for example 0-11,36 (default: every exported run)")
     ap.add_argument("--receivers", default="all",
-                    help="the receivers replayed per run: all (the actors and the drawn cars, default), egos, or a number N of drawn cars beside the egos")
+                    help="the receivers replayed per run: all (the actors and the drawn cars, default), egos, or a number N of drawn cars "
+                         "(in name order) beside the egos")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2), help="runs replayed in parallel (default: half the CPUs)")
     ap.add_argument("--warmup", type=float, default=WARM_UP, help="nothing is counted before this time (default 60 s)")
     ap.add_argument("--no-events", action="store_true", help="do not trace the belief of the egos in their pedestrian")
@@ -301,14 +309,16 @@ def main(argv=None) -> int:
                 print("parallel replay not possible (%s); one run at a time" % exc, flush=True)
         if results is None:
             results = []
-            for w in todo:
+            for w in [w for w in todo if not os.path.isfile(w[1])]:      # the runs the pool wrote before it failed are kept
                 r = _work(w)
                 results.append(r)
                 print("  run %s: %s" % (r["run"], ("error: " + r["error"]) if r["error"] else "%.0f s" % r["seconds"]), flush=True)
         failed = [r for r in results if r["error"]]
         missing = [n for n, _ in found if not os.path.isfile(result_path(args.out, n, holds))]
     else:
-        failed, missing = [], []
+        numbers = set(parse_numbers(args.runs)) if args.runs else None
+        failed = []
+        missing = [n for n, _ in find_runs(args.root, numbers) if not os.path.isfile(result_path(args.out, n, holds))]
     tables = aggregate(args.out)
     for name, table in tables.items():
         path = os.path.join(args.out, name + ".csv")
