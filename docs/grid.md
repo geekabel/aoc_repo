@@ -191,8 +191,9 @@ as failed; the others are still read.
 - The penetration as drawn, per run: 0.03 to 0.20 for the 10 % cells, 0.15 to 0.39 for 25 %, 0.40 to 0.63 for
   50 %, 1.00 for 100 %. The analysis carries the share of the run (`pen_share`) next to the nominal level.
 - The CPM rate: 2.0 Hz for every sender of 2hz, 10.0 Hz for 10hz, and 10.0 Hz for etsi as well, in every cell:
-  the generation rule of ETSI runs at its minimum interval of 0.1 s in this traffic (objects move more than 4 m
-  or appear within every 0.1 s window). So etsi and 10hz differ by the inclusion rule (a part of the perceived
+  the generation rule of ETSI runs at its minimum interval of 0.1 s in this traffic (with ten or more perceived
+  objects, some object is due in every 0.1 s window: moved more than 4 m, changed speed or heading, or last
+  included 1 s ago). So etsi and 10hz differ by the inclusion rule (a part of the perceived
   objects per CPM instead of all of them; the CPMs are smaller) and by the DCC restriction, not by the rate. The
   channel busy ratio stays below the first DCC limit everywhere (mean 0.02 to 0.20, 95th percentile up to 0.27;
   the relaxed state ends at 0.30), so the DCC restriction did not act. At high/100/10hz the receivers got fewer
