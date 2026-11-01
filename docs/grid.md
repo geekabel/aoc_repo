@@ -157,21 +157,27 @@ pedestrians of the local and observations tables) and writes one row per run, on
 and one row per cell.
 
 The checks of a run, PASS when all hold: the export passed and its variables are those of its run number; the
-run covers 329.5 s or more; three pedestrians (`ped_1` to `ped_3`); the 15 actors of the events (the truck, the
-ego and the three helpers of each) have a middleware; the three egos and the nine helpers sent CPMs; the share of
-the background cars that sent at least one CPM is within 0.12 plus three binomial standard deviations of the
-penetration; the median CPM rate of the senders present at least 20 s matches the message configuration (2hz:
-1.7 to 2.3 Hz; 10hz: 8.5 to 10.5 Hz; etsi: 0.9 to 10.5 Hz); the mean number of cars after the warm-up is between
-half and twice the expected count of the density (15, 25, 40).
+run covers 329.5 s or more; the seven tables are there; three pedestrians (`ped_1` to `ped_3`); the 15 actors of
+the events (the truck, the ego and the three helpers of each) have a middleware; the three egos and the nine
+helpers sent CPMs; the share of the background cars present at least 2 s that sent at least one CPM is within
+three binomial standard deviations plus 0.02 of the penetration (at least 0.97 at 100 %; with about 70 background
+cars at the low density the tolerance at 10 % is 0.13, enough to tell 10 % from 25 %); the CPM rate of the
+senders present at least 20 s matches the message configuration (2hz: 1.9 to 2.1 Hz and 10hz: 9.5 to 10.5 Hz for
+the median and the 10th and 90th percentiles of the senders, whose generation is strictly periodic; etsi: a
+median between 0.8 and 10.5 Hz, the rule of ETSI going from 1 Hz under the DCC to 10 Hz, so a run of another
+configuration labelled etsi would pass this check); the mean number of cars after the warm-up is between half and
+twice the expected count of the density (15, 25, 40).
 
 The events are reported and counted, not checked: for each event, whether the ego saw the pedestrian with its own
-sensors, then lost it (the first gap of at least 1.5 s, the rule of C5), the distances when lost and seen again,
-whether that is an occlusion in the sense of C5 (gap of 1.5 to 6 s, lost within 100 m, seen again within 40 m),
-the CPM rows about the pedestrian the ego received during the gap, from the actors of the event and from the
-other cars, the age of the first one, and the cars that saw the pedestrian during four steps out of five of the
-gap (the witnesses). How many events of a cell have an occlusion and a CPM in the gap is a result of the grid
-(it depends on the penetration and on the traffic), not a defect. The table per cell gives the cars, the
-penetration as drawn, the CPM rate, the channel busy ratio, the received CPM rows, and the counts of events.
+sensors, then lost it (the first gap of at least 1.5 s, the rule of C5; without such a gap the longest one is
+written down), the distances when lost and seen again, whether that is an occlusion in the sense of C5 (a gap of
+1.5 to 6 s, lost within 100 m, seen again within 40 m), the CPM rows about the pedestrian the ego received during
+the gap, from the actors of the event and from the other cars, the age of the first one, and the cars that saw
+the pedestrian during four steps out of five of the gap (the witnesses). How many events of a cell have an
+occlusion and a CPM in the gap is a result of the grid (it depends on the penetration and on the traffic), not a
+defect. The table per cell gives the cars, the penetration as drawn, the CPM rate, the channel busy ratio (a mean
+over the CPMs received after the warm-up), the received CPM rows, and the counts of events; the counts of CPMs in
+the gap, the first age and the witnesses are over the events with an occlusion only.
 
 The exit code is 0 when every run read passes. A run that cannot be read is reported with the error and counted
 as failed; the others are still read.

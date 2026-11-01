@@ -19,11 +19,15 @@ tables, and writes down:
 
 The checks of a run (PASS when all hold): the export passed and its variables are those of its run number; the
 run covers 329.5 s or more; three pedestrians; the 15 actors have a middleware; the three egos and the nine helpers
-sent CPMs; the share of background senders is within 0.12 plus three binomial standard deviations of the
-penetration; the median CPM rate matches the message configuration (2hz: 1.7 to 2.3 Hz; 10hz: 8.5 to 10.5 Hz;
-etsi: 0.9 to 10.5 Hz); the mean number of cars is between half and twice the expected count of the density.
+sent CPMs; the seven tables are there; the share of the background cars present at least 2 s that sent a CPM is
+within three binomial standard deviations plus 0.02 of the penetration (at least 0.97 at 100 %); the CPM rate of
+the senders matches the message configuration (2hz: 1.9 to 2.1 Hz and 10hz: 9.5 to 10.5 Hz for the median and
+the 10th and 90th percentiles of the senders; etsi: median between 0.8 and 10.5 Hz, the rule of ETSI goes from
+1 Hz under the DCC to 10 Hz); the mean number of cars is between half and twice the expected count of the density.
 The events are reported and counted per cell, not checked: how many events of a cell have an occlusion and a
-CPM in the gap is a result of the grid (it depends on the penetration and on the traffic), not a defect.
+CPM in the gap is a result of the grid (it depends on the penetration and on the traffic), not a defect. The
+counts of CPMs in the gap, the first age and the witnesses are counted over the events with an occlusion only;
+the events table keeps, for an ego without a gap of 1.5 s, its longest gap, marked as no occlusion.
 
     aoc-gridcheck ROOT [--out runs.csv] [--events events.csv] [--cells cells.csv] [--jobs N] [--runs 0-11,36]
 
@@ -50,8 +54,12 @@ MIN_TIME = 329.5                                # s: a run must cover this much
 EVENTS = (1, 2, 3)
 ACTOR_KINDS = ("truck", "ego", "helper_a", "helper_b", "helper_c")
 EXPECTED_CARS = {"low": 15.0, "medium": 25.0, "high": 40.0}
-RATE_BANDS = {"etsi": (0.9, 10.5), "2hz": (1.7, 2.3), "10hz": (8.5, 10.5)}      # Hz, the median CPM rate of a sender
-PEN_TOLERANCE = 0.12
+RATE_BANDS = {"etsi": (0.8, 10.5), "2hz": (1.9, 2.1), "10hz": (9.5, 10.5)}      # Hz, the CPM rate of a sender
+PERIODIC = ("2hz", "10hz")                      # the configurations whose senders are strictly periodic: every sender in the band
+PEN_SLACK = 0.02                                # on top of three binomial standard deviations: the cars that leave before their first CPM
+PEN_FULL = 0.97                                 # at 100 %, the share of background senders must reach this
+MIN_PRESENCE = 2.0                              # s: a background car counts in the penetration when present at least this long
+TABLES = ("truth", "nodes", "cpm_tx", "cpm_obj", "cpm_rx", "local", "observations")
 MIN_SENDER_SPAN = 20.0                          # s: a sender present at least this long counts in the rate
 
 
@@ -86,7 +94,8 @@ def event_timeline(k: int, truth: pd.DataFrame, local_about: pd.DataFrame, v2x_a
     about the pedestrians received (columns t_rx, rx_station, tx_station, gt_match_id, age, class)."""
     a = actors_of(k)
     ego, ped = a["ego"], "ped_%d" % k
-    out = dict(event=k, ego=ego, ped=ped, ego_present=ego in nodes, ped_present=bool((truth["obj_id"] == ped).any()),
+    out = dict(event=k, ego=ego, ped=ped, ego_present=bool((truth["obj_id"] == ego).any()), ego_middleware=ego in nodes,
+               ped_present=bool((truth["obj_id"] == ped).any()),
                ego_sees=False, ego_first=None, lost=None, seen_again=None, gap=None, lost_distance=None, seen_again_distance=None,
                occlusion=False, cpm_in_gap=0, cpm_from_actors=0, cpm_from_others=0, first_cpm_age=None, first_cpm_delay=None,
                witnesses=0, actor_witnesses=0, cpm_about_ped=0, cpm_senders=0)
@@ -132,6 +141,8 @@ def event_timeline(k: int, truth: pd.DataFrame, local_about: pd.DataFrame, v2x_a
 def read_run(folder: str) -> dict:
     """The facts of one exported run and its three events. Keys: see ``RUN_COLUMNS`` and ``event_timeline``."""
     folder = os.fspath(folder)
+    if not os.path.isfile(os.path.join(folder, "export_summary.json")) and os.path.isfile(os.path.join(folder, "parquet", "export_summary.json")):
+        folder = os.path.join(folder, "parquet")
     with open(os.path.join(folder, "export_summary.json"), encoding="utf-8") as fh:
         info = json.load(fh)
     number = run_number_of(folder)
@@ -148,13 +159,16 @@ def read_run(folder: str) -> dict:
     checks["export_passed"] = info.get("result") == "PASS"
     checks["cell_matches"] = bool(out["cell_matches"])
     checks["covers_the_run"] = bool(out["t_last_s"] is not None and out["t_last_s"] >= MIN_TIME)
+    missing = [name for name in TABLES if not os.path.isfile(os.path.join(folder, name + ".parquet"))]
+    checks["tables_present"] = not missing
+    if missing:
+        out["notes"].append("missing table(s): " + ", ".join(missing))
 
     truth = _read(folder, "truth", columns=["t", "obj_id", "x", "y", "class"])
     nodes_table = _read(folder, "nodes", columns=["node_id"])
     tx = _read(folder, "cpm_tx", columns=["t_tx", "tx_id"])
-    rx = _read(folder, "cpm_rx", columns=["t_rx", "rx_id", "cbr", "delay"])
+    rx = _read(folder, "cpm_rx", columns=["t_rx", "cbr", "delay"])
     if truth is None:
-        out["notes"].append("no truth table")
         return finish(out)
     peds = sorted(truth.loc[truth["class"] == "pedestrian", "obj_id"].dropna().astype(str).unique().tolist())
     out["pedestrians"] = len(peds)
@@ -166,6 +180,10 @@ def read_run(folder: str) -> dict:
     background = sorted(nodes - set(actors))
     out["vehicles"] = len(nodes)
     out["background_cars"] = len(background)
+    span = truth.groupby("obj_id")["t"].agg(["min", "max"])
+    present = set(span.index[(span["max"] - span["min"]) >= MIN_PRESENCE].astype(str))
+    eligible = [car for car in background if car in present]
+    out["background_eligible"] = len(eligible)
 
     # the cars on the map after the warm-up
     late = truth[(truth["t"] >= WARM_UP) & (truth["class"] != "pedestrian")]
@@ -185,7 +203,7 @@ def read_run(folder: str) -> dict:
         senders = set(tx["tx_id"])
         out["senders"] = len(senders)
         out["background_senders"] = len(senders & set(background))
-        out["pen_share"] = round(out["background_senders"] / len(background), 3) if background else None
+        out["pen_share"] = round(len(senders & set(eligible)) / len(eligible), 3) if eligible else None
         g = tx.groupby("tx_id")["t_tx"].agg(["count", "min", "max"])
         g = g[(g["max"] - g["min"]) >= MIN_SENDER_SPAN]
         rates = ((g["count"] - 1) / (g["max"] - g["min"])).to_numpy(float)
@@ -198,14 +216,15 @@ def read_run(folder: str) -> dict:
         out["truck_senders"] = 0
         checks["egos_and_helpers_send"] = False
     pen = out["pen"]
-    if pen is not None and out["pen_share"] is not None and background:
+    if pen is not None and out["pen_share"] is not None and eligible:
         p = pen / 100.0
-        sigma = (p * (1 - p) / len(background)) ** 0.5
-        checks["penetration_as_drawn"] = abs(out["pen_share"] - p) <= PEN_TOLERANCE + 3 * sigma
+        sigma = (p * (1 - p) / len(eligible)) ** 0.5
+        checks["penetration_as_drawn"] = out["pen_share"] >= PEN_FULL if pen == 100 else abs(out["pen_share"] - p) <= PEN_SLACK + 3 * sigma
     else:
         checks["penetration_as_drawn"] = False
     band = RATE_BANDS.get(out["msg"])
-    checks["rate_matches_msg"] = bool(band is not None and out["rate_median_hz"] is not None and band[0] <= out["rate_median_hz"] <= band[1])
+    rates_in = (out["rate_median_hz"],) if out["msg"] not in PERIODIC else (out["rate_median_hz"], out["rate_p10_hz"], out["rate_p90_hz"])
+    checks["rate_matches_msg"] = bool(band is not None and all(r is not None and band[0] <= r <= band[1] for r in rates_in))
 
     # the channel after the warm-up
     out["cbr_mean"] = out["cbr_p95"] = out["delay_median_ms"] = None
@@ -225,6 +244,7 @@ def read_run(folder: str) -> dict:
                       filters=[("gt_match_id", "in", peds)]) if peds else None
     local_about = _read(folder, "local", columns=["t", "node_id", "obj_id"], filters=[("obj_id", "in", peds)]) if peds else None
     if local_about is None and obs_about is not None:                # a run without local.parquet: the sensor rows of the observations table
+        out["notes"].append("no local table: the witnesses are counted among the receivers of the observations table only")
         own = obs_about[obs_about["src"] != "v2x"]
         local_about = pd.DataFrame({"t": own["t_sim"], "node_id": own["rx_station"], "obj_id": own["gt_match_id"]})
     if obs_about is not None and local_about is not None:
@@ -244,10 +264,10 @@ def finish(out: dict) -> dict:
 
 
 RUN_COLUMNS = ["run", "density", "pen", "msg", "seed", "kind", "ok", "result", "t_last_s", "steps", "pedestrians", "vehicles", "background_cars",
-               "actors_present", "cars_mean", "cars_max", "senders", "background_senders", "pen_share", "truck_senders", "rate_median_hz",
+               "background_eligible", "actors_present", "cars_mean", "cars_max", "senders", "background_senders", "pen_share", "truck_senders", "rate_median_hz",
                "rate_p10_hz", "rate_p90_hz", "cbr_mean", "cbr_p95", "delay_median_ms", "cpm_rx_after_warmup", "failed_checks", "folder"]
-EVENT_COLUMNS = ["run", "density", "pen", "msg", "seed", "kind", "event", "ego", "ped", "ego_present", "ped_present", "ego_sees", "ego_first", "lost",
-                 "seen_again", "gap", "lost_distance", "seen_again_distance", "occlusion", "cpm_in_gap", "cpm_from_actors", "cpm_from_others",
+EVENT_COLUMNS = ["run", "density", "pen", "msg", "seed", "kind", "event", "ego", "ped", "ego_present", "ego_middleware", "ped_present", "ego_sees",
+                 "ego_first", "lost", "seen_again", "gap", "lost_distance", "seen_again_distance", "occlusion", "cpm_in_gap", "cpm_from_actors", "cpm_from_others",
                  "first_cpm_age", "first_cpm_delay", "witnesses", "actor_witnesses", "cpm_about_ped", "cpm_senders"]
 
 
@@ -281,10 +301,16 @@ def cells_table(runs: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
                   cpm_rx=("cpm_rx_after_warmup", "mean"), truck_senders=("truck_senders", "sum")).reset_index()
     if not events.empty:
         e = events.groupby(keys, sort=False)
-        ev = e.agg(events=("event", "count"), ego_sees=("ego_sees", "sum"), occlusions=("occlusion", "sum"),
-                   cpm_in_gap=("cpm_in_gap", lambda s: int((s > 0).sum())), cpm_in_gap_mean=("cpm_in_gap", "mean"),
-                   from_others=("cpm_from_others", lambda s: int((s > 0).sum())), first_cpm_age=("first_cpm_age", "median"),
-                   witnesses=("witnesses", "median")).reset_index()
+        ev = e.agg(events=("event", "count"), ego_sees=("ego_sees", "sum"), occlusions=("occlusion", "sum")).reset_index()
+        occ = events[events["occlusion"].astype(bool)]                   # the CPMs in the gap, the first age and the witnesses: occlusions only
+        if len(occ):
+            o = occ.groupby(keys, sort=False).agg(cpm_in_gap=("cpm_in_gap", lambda s: int((s > 0).sum())), cpm_in_gap_mean=("cpm_in_gap", "mean"),
+                                                 from_others=("cpm_from_others", lambda s: int((s > 0).sum())), first_cpm_age=("first_cpm_age", "median"),
+                                                 witnesses=("witnesses", "median")).reset_index()
+            ev = ev.merge(o, on=keys, how="left")
+        else:
+            for col in ("cpm_in_gap", "cpm_in_gap_mean", "from_others", "first_cpm_age", "witnesses"):
+                ev[col] = np.nan
         cells = cells.merge(ev, on=keys, how="left")
     order = {d: i for i, d in enumerate(grid.DENSITIES)}, {p: i for i, p in enumerate(grid.PENETRATIONS)}, {m: i for i, m in enumerate(grid.MESSAGES)}
     cells["_o"] = [(order[0].get(d, 9), order[1].get(p, 9), order[2].get(m, 9)) for d, p, m in zip(cells["density"], cells["pen"], cells["msg"])]
@@ -304,9 +330,10 @@ def format_cells(cells: pd.DataFrame) -> str:
             f(r.cpm_rx, "%.0f"), f(getattr(r, "events", None), "%d"), f(getattr(r, "occlusions", None), "%d"), f(getattr(r, "cpm_in_gap", None), "%d"),
             f(getattr(r, "from_others", None), "%d"), f(getattr(r, "first_cpm_age", None), "%.2f"), f(getattr(r, "witnesses", None), "%.0f")))
     lines.append("columns: cars = mean cars on the map after 60 s; pen_dr = share of background cars that sent a CPM; rate = median CPM rate of a sender (Hz);")
-    lines.append("  cbr = mean channel busy ratio at the receivers after 60 s; cpm_rx = CPM rows received per run after 60 s; ev = events read; occl = events")
-    lines.append("  with an occlusion; cpm_g = events with a CPM about the pedestrian received by the ego in the gap; others = of them, with a CPM from a car")
-    lines.append("  that is not an actor of the event; age1 = median age of the first CPM in the gap (s); witn = median cars seeing the pedestrian through the gap")
+    lines.append("  cbr = mean channel busy ratio over the CPMs received after 60 s; cpm_rx = CPM rows received per run after 60 s; ev = events read;")
+    lines.append("  occl = events with an occlusion; over those: cpm_g = events with a CPM about the pedestrian received by the ego in the gap; others = of")
+    lines.append("  them, with a CPM from a car that is not an actor of the event; age1 = median age of the first CPM in the gap (s); witn = median cars")
+    lines.append("  seeing the pedestrian through the gap")
     return "\n".join(lines)
 
 
@@ -369,16 +396,17 @@ def main(argv=None) -> int:
     cells = cells_table(runs, events)
     print(format_cells(cells))
     failed = runs[~runs["ok"].astype(bool)]
-    print("runs read: %d, passed: %d, failed: %d" % (len(runs), int(runs["ok"].sum()), len(failed)))
+    print("runs read: %d of the %d of the grid, passed: %d, failed: %d" % (len(runs), grid.N_RUNS, int(runs["ok"].sum()), len(failed)))
     for r in failed.itertuples():
         print("  run %s (%s/%s/%s seed %s): %s" % (r.run, r.density, r.pen, r.msg, r.seed, r.failed_checks))
     for r in results:
         for note in r.get("notes", []):
             print("  run %s: %s" % (r.get("run"), note))
     if not events.empty:
-        print("events: %d read, %d with the ego seeing the pedestrian, %d with an occlusion, %d with a CPM in the gap, %d of them from a car that is not an actor"
-              % (len(events), int(events["ego_sees"].sum()), int(events["occlusion"].sum()), int((events["cpm_in_gap"] > 0).sum()),
-                 int((events["cpm_from_others"] > 0).sum())))
+        occ = events[events["occlusion"].astype(bool)]
+        print("events: %d read, %d with the ego seeing the pedestrian, %d with an occlusion; of those, %d with a CPM in the gap, "
+              "%d with one from a car that is not an actor" % (len(events), int(events["ego_sees"].sum()), len(occ),
+                                                                 int((occ["cpm_in_gap"] > 0).sum()), int((occ["cpm_from_others"] > 0).sum())))
     for path, table in ((args.out, runs), (args.events, events), (args.cells, cells)):
         if path:
             table.to_csv(path, index=False)
