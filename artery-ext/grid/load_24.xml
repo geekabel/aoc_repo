@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
+<!-- Control grid of the plan (task E2): 24 load stations around the junction, on a grid of 80 m, the closest first. -->
+<nodes>
+    <rsu id="load_2_2" positionX="260.42" positionY="259.50"/>
+    <rsu id="load_2_3" positionX="260.42" positionY="339.50"/>
+    <rsu id="load_3_2" positionX="340.42" positionY="259.50"/>
+    <rsu id="load_3_3" positionX="340.42" positionY="339.50"/>
+    <rsu id="load_1_2" positionX="180.42" positionY="259.50"/>
+    <rsu id="load_1_3" positionX="180.42" positionY="339.50"/>
+    <rsu id="load_2_1" positionX="260.42" positionY="179.50"/>
+    <rsu id="load_2_4" positionX="260.42" positionY="419.50"/>
+    <rsu id="load_3_1" positionX="340.42" positionY="179.50"/>
+    <rsu id="load_3_4" positionX="340.42" positionY="419.50"/>
+    <rsu id="load_4_2" positionX="420.42" positionY="259.50"/>
+    <rsu id="load_4_3" positionX="420.42" positionY="339.50"/>
+    <rsu id="load_1_1" positionX="180.42" positionY="179.50"/>
+    <rsu id="load_1_4" positionX="180.42" positionY="419.50"/>
+    <rsu id="load_4_1" positionX="420.42" positionY="179.50"/>
+    <rsu id="load_4_4" positionX="420.42" positionY="419.50"/>
+    <rsu id="load_0_2" positionX="100.42" positionY="259.50"/>
+    <rsu id="load_0_3" positionX="100.42" positionY="339.50"/>
+    <rsu id="load_2_0" positionX="260.42" positionY="99.50"/>
+    <rsu id="load_2_5" positionX="260.42" positionY="499.50"/>
+    <rsu id="load_3_0" positionX="340.42" positionY="99.50"/>
+    <rsu id="load_3_5" positionX="340.42" positionY="499.50"/>
+    <rsu id="load_5_2" positionX="500.42" positionY="259.50"/>
+    <rsu id="load_5_3" positionX="500.42" positionY="339.50"/>
+</nodes>

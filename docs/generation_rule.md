@@ -115,8 +115,9 @@ with the CPM bytes without the empty CPMs, within one point. The Python mirror o
 (`aoc.theory.reliability`) and the tables of the quick run below (`results/e1/`).
 
 `bash d1_grid.sh --control-quick` runs the configuration `control_quick` of `artery-ext/grid/omnetpp.ini` (three runs
-of 60 s at low density and 100 % penetration: `etsi`, `etsi_abs`, `aoc`, with `services-control-100.xml`), exports
-them and prints the check of the `aoc` run against the two others (`--objects all`, after a warm-up of 10 s).
+of 60 s at low density and 100 % penetration: `etsi`, `etsi_abs`, `aoc`, with the scenario of the control grid at
+100 %, `control_low_p100` and `services-control.xml`), exports them and prints the check of the `aoc` run against
+the two others (`--objects all`, after a warm-up of 10 s).
 
 ## The quick run of Nov 4, 2026 (in the sandbox of this session, Artery e0ddd8c)
 
@@ -142,13 +143,10 @@ and the moving cars a little more often. The verdict of H4 on these pairs is PAS
 not the test of H4: the objects here are the equipped cars themselves, which a CAM covers in the real grid, and
 the channel is free. The real test is the control grid (E2), with the objects the metric is for.
 
-## What E2 must add
+## What comes after
 
-- The control scenario: the cars without CP without CA either (the equipped set drawn once in the route files),
-  so that the receiver metric has its objects (the busy ratio of the control grid is then not the one of the core
-  grid at the same penetration); a channel load factor that bites (the core grid stays under a busy ratio of 0.2:
-  more senders, or a load generator); the configurations `aoc` with n = 1 and 2, with and without the deviation
-  trigger, against `etsi` and `etsi_abs`; `aoc` with the assumed q as a sensitivity. With DCC on, the rule's
-  look-ahead is the DCC interval: tested here with the channel free only.
-- The receiver's curve with the stopped state (the replay's discount), so that both sides use the same curve.
-- The metric of F9 from the replay too (B3's belief instead of `alpha(age)` of the raw report).
+The control grid (E2, `docs/control_grid.md`): the cars without CP without CA either, the load stations, the rules
+`etsi`, `etsi_abs`, `aoc`, `aoc2` and `aocdev`. Then (E3) the receiver's curve with the stopped state (the replay's
+discount and alignment), so that both sides use the same curve, and the metric of F9 from the replay too (B3's
+belief instead of `alpha(age)` of the raw report). With DCC on, the rule's look-ahead is the DCC interval: tested
+here with the channel free only; the control grid loads it.

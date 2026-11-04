@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
+<!-- Control grid of the plan (task E2): 0 load stations around the junction, on a grid of 80 m, the closest first. -->
+<nodes>
+</nodes>

@@ -174,6 +174,15 @@ C5_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'C5_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocCpService.cc@@
 C5_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.ned" <<'C5_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.ned@@
+C5_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.h" <<'C5_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.h@@
+C5_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.cc" <<'C5_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.cc@@
+C5_FILE_EOF
     put_file "$EXT_DIR/cpservice-protected.patch" <<'C5_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/cpservice-protected.patch@@
 C5_FILE_EOF

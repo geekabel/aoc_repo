@@ -47,32 +47,32 @@ def build_a7():
 def build_a8():
     template = (TOOLS / "a8_logger.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "A8_FILE_EOF"), template)
-    if n != 12:
-        raise SystemExit(f"a8_logger.template.sh: expected 12 placeholders, found {n}")
+    if n != 15:
+        raise SystemExit(f"a8_logger.template.sh: expected 15 placeholders, found {n}")
     return text
 
 
 def build_c1():
     template = (TOOLS / "c1_link.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C1_FILE_EOF"), template)
-    if n != 18:
-        raise SystemExit(f"c1_link.template.sh: expected 18 placeholders, found {n}")
+    if n != 21:
+        raise SystemExit(f"c1_link.template.sh: expected 21 placeholders, found {n}")
     return text
 
 
 def build_c5():
     template = (TOOLS / "c5_vru.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C5_FILE_EOF"), template)
-    if n != 22:
-        raise SystemExit(f"c5_vru.template.sh: expected 22 placeholders, found {n}")
+    if n != 25:
+        raise SystemExit(f"c5_vru.template.sh: expected 25 placeholders, found {n}")
     return text
 
 
 def build_d1():
     template = (TOOLS / "d1_grid.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "D1_FILE_EOF"), template)
-    if n != 32:
-        raise SystemExit(f"d1_grid.template.sh: expected 32 placeholders, found {n}")
+    if n != 34:
+        raise SystemExit(f"d1_grid.template.sh: expected 34 placeholders, found {n}")
     return text
 
 
