@@ -469,7 +469,7 @@ patch_cpservice || finish_fail "Cannot patch $ARTERY_DIR/src/artery/envmod/servi
 SRC_CHANGED="$CHANGED"
 step_done "sources" "OK" "$( [ "$SRC_CHANGED" = 1 ] && echo "installed in scenarios/aoc" || echo "already up to date" )"
 if [ "$SRC_CHANGED" = 1 ] || [ ! -f "$LIB" ] || ! grep -q 'scenarios/aoc' "$BUILD_DIR/run-artery.ini" 2>/dev/null \
-   || ! nm -D "$LIB" 2>/dev/null | grep -q AocCpService; then
+   || ! nm -D "$LIB" 2>/dev/null | grep -q 'AocCpService.*ageLimit'; then
     say "Building the AoC sources with $D1_JOBS jobs. Logs: $LOG_DIR/cmake.log and build.log"
     if ! ( cd "$ARTERY_DIR" && cmake -S . -B build ) > "$LOG_DIR/cmake.log" 2>&1; then
         step_done "build" "FAILED" "cmake configure"

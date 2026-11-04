@@ -13,10 +13,11 @@ from aoc.analysis import rulecheck
 from aoc.io.export import write_parquet
 from aoc.theory import reliability
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 STEP = 0.1
 
 
-def write_run(folder: pathlib.Path, periods: dict, t_end: float = 40.0, delay: float = 0.05, stop_until: float = 20.0) -> pathlib.Path:
+def write_run(folder: pathlib.Path, periods: dict, t_end: float = 40.0, delay: float = 0.05, stop_until: float = 20.0, lag_ms: int = 0) -> pathlib.Path:
     """A run with one sender ``a`` (a car at the origin) that sends three objects with the periods given, one receiver
     ``r`` 50 m away that gets every CPM after ``delay``: the car ``c1`` at 10 m/s, the car ``c2`` stopped until
     ``stop_until`` then at 10 m/s, the pedestrian ``p`` at 1 m/s. The periods are keyed c1, c2_stopped, c2_moving, p."""
@@ -51,13 +52,15 @@ def write_run(folder: pathlib.Path, periods: dict, t_end: float = 40.0, delay: f
         tx.append((float(t), "a", 1, ref, len(names), 40 + 30 * len(names)))
         rx.append((float(t) + delay, "r", 1, ref, 0.05))
         for k, name in enumerate(names):
-            obj.append((1, ref, k, float(t), "a", name, float(t), speed_of[name](t) * 100.0, cls_of[name]))
+            obj.append((1, ref, k, float(t), "a", name, float(t) - lag_ms / 1000.0, speed_of[name](t) * 100.0, cls_of[name], lag_ms))
     p = folder / "parquet"
     p.mkdir(parents=True, exist_ok=True)
     write_parquet(pd.DataFrame(truth, columns=["t", "obj_id", "x", "y", "class", "speed"]), p / "truth.parquet")
-    write_parquet(pd.DataFrame(tx, columns=["t_tx", "tx_id", "station_id", "reference_time_ms", "n_objects", "size_bytes"]), p / "cpm_tx.parquet")
-    write_parquet(pd.DataFrame(obj, columns=["station_id", "reference_time_ms", "obj_index", "t_tx", "tx_id", "gt_match_id", "t_meas", "speed_cms", "class"]),
-                  p / "cpm_obj.parquet")
+    frame = pd.DataFrame(tx, columns=["t_tx", "tx_id", "station_id", "reference_time_ms", "n_objects", "size_bytes"])
+    frame["has_sensor_info"] = ((frame["n_objects"] == 0) & (frame["t_tx"].round(1) % 2 == 0)).astype(int)   # half of the CPMs without objects are empty
+    write_parquet(frame, p / "cpm_tx.parquet")
+    write_parquet(pd.DataFrame(obj, columns=["station_id", "reference_time_ms", "obj_index", "t_tx", "tx_id", "gt_match_id", "t_meas", "speed_cms", "class",
+                                             "meas_delta_ms"]), p / "cpm_obj.parquet")
     write_parquet(pd.DataFrame(rx, columns=["t_rx", "rx_id", "station_id", "reference_time_ms", "cbr"]), p / "cpm_rx.parquet")
     write_parquet(pd.DataFrame({"node_id": ["a", "r"], "station_id": [1, 2]}), p / "nodes.parquet")
     json.dump({"t_last_s": t_end, "variables": {"rule": "test"}}, open(p / "export_summary.json", "w"))
@@ -116,9 +119,10 @@ def test_a_faster_sender_is_known_better_and_the_report(tmp_path):
     fast = rulecheck.analyse(str(write_run(tmp_path / "fast", {"c1": 0.5, "c2_stopped": 0.5, "c2_moving": 0.5, "p": 0.5})), rule, 2.0, 200.0, 5.0)
     assert fast["summary"]["time_above_target"] > slow["summary"]["time_above_target"] and fast["summary"]["bytes_per_s"] > slow["summary"]["bytes_per_s"]
     text = rulecheck.format_report(slow, fast, rule)
-    assert "H4 on this run: not met" in text and "run against the other" in text and "the rule: target 0.90" in text
+    assert text.count("H4 on this run, the load as") == 2 and "H4 on this run, the load as the CPM bytes without the empty CPMs: not met" in text
+    assert "run against the other" in text and "the rule: target 0.90" in text
     text = rulecheck.format_report(fast, slow, rule)
-    assert "H4 on this run: not met" in text                                                            # more load, not less
+    assert "the CPM bytes without the empty CPMs: not met" in text                                     # more load, not less
 
 
 def test_the_command(tmp_path):
@@ -128,9 +132,27 @@ def test_the_command(tmp_path):
     proc = subprocess.run([sys.executable, "-m", "aoc.analysis.rulecheck", str(run), "--against", str(other), "--warmup", "2", "--out", str(out)],
                           capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "H4 on this run: PASS" in proc.stdout, proc.stdout
+    assert "the CPM bytes without the empty CPMs: PASS" in proc.stdout, proc.stdout
+    assert "the channel busy ratio, the load of the plan: not met" in proc.stdout                      # the same busy ratio in both fixtures
     assert (out / "run_inclusions.csv").is_file() and (out / "against_receivers.csv").is_file()
     summary = json.load(open(out / "summary.json"))
-    assert summary["run"]["bytes_per_s"] < 0.8 * summary["against"]["bytes_per_s"]
+    assert summary["run"]["bytes_per_s"] < 0.8 * summary["against"]["bytes_per_s"] and summary["run"]["receivers_exposed"] == 1
+    assert summary["run"]["bytes_per_s_without_empty"] < summary["run"]["bytes_per_s"]
     proc = subprocess.run([sys.executable, "-m", "aoc.analysis.rulecheck", str(tmp_path / "nowhere")], capture_output=True, text=True)
     assert proc.returncode == 2 and "ERROR" in proc.stdout
+
+
+@pytest.mark.skipif(not (ROOT / "results" / "e1" / "quick_aoc_vs_etsi" / "run_inclusions.csv").is_file(), reason="the tables of E1 are not there")
+def test_the_quick_run_of_the_sandbox():
+    """The service did what the rule says on the quick run of Nov 4, 2026 (the C++ side, through its logs)."""
+    folder = ROOT / "results" / "e1" / "quick_aoc_vs_etsi"
+    inc = pd.read_csv(folder / "run_inclusions.csv").set_index(["cls", "state"])
+    car = inc.loc[("passenger_car", "moving")]
+    assert car["median"] == pytest.approx(0.9, abs=1e-3) and car["at_period"] >= 0.85 and car["sent_at"] == pytest.approx(0.9, abs=1e-3)
+    stopped = inc.loc[("passenger_car", "stopped")]
+    assert stopped["sent_at"] == pytest.approx(4.5, abs=1e-3) and stopped["p90"] >= 4.3 and stopped["shorter_state_change"] > 0.2
+    summary = json.load(open(folder / "summary.json"))
+    assert summary["run"]["bytes_per_s"] < 0.5 * summary["against"]["bytes_per_s"] and summary["run"]["cbr_mean"] < 0.8 * summary["against"]["cbr_mean"]
+    assert summary["run"]["time_above_target"] >= summary["against"]["time_above_target"] - 0.01
+    etsi = pd.read_csv(folder / "against_inclusions.csv").set_index(["cls", "state"])
+    assert etsi.loc[("passenger_car", "stopped"), "median"] < 0.5                         # CpService: the position change relative to the sender

@@ -45,6 +45,7 @@ public:
         omnetpp::SimTime included;    // the last inclusion in a CPM
         double xi = 0.0, yi = 0.0;    // the position and the velocity sent then
         double vxi = 0.0, vyi = 0.0;
+        bool stoppedSent = false;     // the state sent then: the curve the receiver ages the report with
         bool haveIncluded = false;
     };
 
@@ -54,7 +55,9 @@ protected:
     bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now) override;
 
 private:
-    Curve curveOf(const PerceivedObjectSnapshot&) const;
+    Curve curveOf(const PerceivedObjectSnapshot&, bool stopped) const;
+    bool isStopped(const PerceivedObjectSnapshot&) const;
+    void markSent(ObjectMemory&, const PerceivedObjectSnapshot&, const omnetpp::SimTime& T_now, double x, double y) const;
     static std::string className(int stationType);
     void parseQByClass(const std::string&);
 
@@ -76,12 +79,16 @@ private:
     double mMaxPeriod = 4.5;          // the period never exceeds this (the receivers forget after their hold)
     bool mEmptyCpm = false;           // send a CPM at every generation step even without an object due
     omnetpp::SimTime mGenStep;        // the generation interval in force at the current step
+    bool mCpmGoesOutAnyway = false;   // at this step a CPM goes out whatever the objects say (sensor information, maxInterval)
     std::unordered_map<int, ObjectMemory> mMemory;
 
     // counters, recorded as scalars
     unsigned long mIncludedNew = 0;
     unsigned long mIncludedAge = 0;
+    unsigned long mIncludedState = 0;
     unsigned long mIncludedDeviation = 0;
+    unsigned long mIncludedEtsi = 0;
+    unsigned long mIncludedTypeA = 0;
     unsigned long mCpmSkipped = 0;
     unsigned long mCpmSent = 0;
 

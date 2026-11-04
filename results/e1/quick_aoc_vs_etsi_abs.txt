@@ -1,0 +1,29 @@
+the rule: target 0.90, tolerance 1.50 m, delay 0.10 s, n = 1, step 0.1 s, period at most 4.5 s
+          cls   state      q  age_limit  period  sent_at
+passenger_car  moving 0.2690      1.073   0.973      0.9
+  heavy_truck  moving 0.1180      1.161   1.061      1.0
+   pedestrian  moving 0.0252      1.237   1.137      1.1
+      cyclist  moving 0.9800      0.865   0.765      0.7
+      default  moving 0.2690      1.073   0.973      0.9
+          any stopped 0.0010      7.021   4.500      4.5
+
+run: sandbox:control_quick/aoc-control_quick-2 ({'density': 'low', 'pen': '100', 'rule': 'aoc'}), 50 s after the warm-up
+  senders 19, CPM rate 2.646 Hz per sender, 3361 bytes/s in all (3361 without the empty CPMs), 1.14 objects per CPM; CBR 0.0330
+  receivers 19 (17 with 50 ticks of object time or more): time above target 0.9657 pooled over the 52398 object ticks (0.9705 on average over the exposed receivers), known 0.9660
+  inclusions per class and state:
+              cls   state  intervals  period  sent_at  median  p10  p90  at_period  shorter  shorter_state_change  longer  longer_state_change
+    passenger_car  moving       2460   0.973      0.9     0.9  0.8  0.9      0.886    0.049                 0.026   0.065                 0.00
+    passenger_car stopped        201   4.500      4.5     4.4  1.2  4.4      0.493    0.418                 0.254   0.090                 0.05
+against: sandbox:control_quick/aoc-control_quick-1 ({'density': 'low', 'pen': '100', 'rule': 'etsi_abs'}), 50 s after the warm-up
+  senders 19, CPM rate 4.581 Hz per sender, 7322 bytes/s in all (7322 without the empty CPMs), 1.85 objects per CPM; CBR 0.0459
+  receivers 19 (17 with 50 ticks of object time or more): time above target 0.9662 pooled over the 52398 object ticks (0.9713 on average over the exposed receivers), known 0.9666
+  inclusions per class and state:
+              cls   state  intervals  period  sent_at  median  p10  p90  at_period  shorter  shorter_state_change  longer  longer_state_change
+    passenger_car  moving       7117   0.973      0.9     0.3  0.2  0.4      0.004    0.982                 0.009   0.014                0.001
+    passenger_car stopped        736   4.500      4.5     1.0  1.0  1.0      0.000    0.986                 0.073   0.014                0.011
+
+run against the other: bytes/s 0.459 (0.459 without the empty CPMs), CPM rate 0.578, CBR 0.719, time above target 0.999, known 0.999
+H4 on this run, the load as the channel busy ratio, the load of the plan: PASS
+H4 on this run, the load as the CPM bytes without the empty CPMs: PASS
+(the plan: the target reached with at least 20 % less load, or more time above the target at equal load; within 1 point here; the busy ratio here is the mean over the receptions, which leans to the busy moments)
+written: results/e1/quick_aoc_vs_etsi_abs

@@ -22,10 +22,16 @@ to the target `alpha*` (0.9). A report arrives with the delay `d`, so the receiv
     T = (Delta_l - d) / n,
 
 `n` reports per limit (n = 1: the reliability dips under the target only when a report is lost; n = 2: when two in
-a row are lost). The service evaluates the rule at every generation step (every `minInterval` of 0.1 s, or the DCC
-interval): an object goes into the CPM of this step when its last report would be older than `T` at the next step
-(so it is sent at the last step at or before `T`); a newly seen object goes in at once. The age counts from the
-measurement of the report (`measurementDeltaTime`), not from its sending.
+a row are lost). The curve is the one of the report the receiver holds: the class and the state (stopped, moving)
+of the last report sent, not of the object now. The service evaluates the rule at every update (0.1 s): an object
+goes into the CPM of this step when its last report would be older than `T` at the next evaluation, one update
+interval away, or one generation interval away (the DCC interval, `minInterval` without DCC) once a CPM goes out at
+this step. So it is sent at the last step at or before `T - lag`, where the lag is the age of the report at the
+step (the position of the sender is 0.05 s old at the step, `ref_lag`; the measurement older still,
+`measurementDeltaTime`). A newly seen object goes in at once, and so does an object that changed state since its
+last report (a car that stops, or starts): the receiver ages its report with the curve of the state it was sent
+with, so the sender must refresh it at once (the first version of the rule did not, and the receivers were below
+the target for 3 s after each stop; the review of E1 found it).
 
 Three things the note's rule does not say, and the service adds:
 
@@ -52,23 +58,27 @@ The parameters are NED parameters of `AocCpService` (`generationRule`, `targetAl
 passenger_car 0.269, heavy_truck 0.118, pedestrian 0.0252; cyclist takes the note's 0.98, the other classes the
 car's value). With the fitted `q`, `d` = 0.1 s and `n` = 1 the periods are: car 0.97 s (sent at 0.9 s), truck
 1.06 s (1.0 s), pedestrian 1.14 s (1.1 s), cyclist 0.77 s (0.7 s), stopped 4.5 s (the cap; 6.9 s without it). The
-service prints them at the start of a run (`EV_INFO`).
+service prints them at the start of a run at the `EV_INFO` level (not in the express mode of Cmdenv, which the
+scripts use); `aoc-rulecheck` prints the same table.
 
 The service also knows the loss of C1 (`dropProbability`) and three generation rules:
 
 | `generationRule` | What it does |
 | --- | --- |
 | `etsi` | `CpService` of Artery, untouched: the rules of TS 103 324 (new object; moved 4 m; speed changed 0.5 m/s; heading changed 4 degrees; 1 s since the last inclusion; the VRUs every 0.5 s together) |
-| `etsi_abs` | the same rules with the position change taken on the absolute position of the object. `CpService` compares positions relative to the sender, so a sender that moves sends every stopped object it sees at every step (a car at 50 km/h moves 4 m in 0.3 s). The quick run below shows it: ETSI sends the stopped cars every 0.3 to 0.4 s instead of every second |
+| `etsi_abs` | the same rules with the position change taken on the absolute position of the object (`CpService` compares positions relative to the sender, so a sender that moves sends every stopped object it sees at every step: a car at 50 km/h moves 4 m in 0.3 s; the quick run below shows it, ETSI sends the stopped cars every 0.3 to 0.4 s instead of every second), and a CPM only when something is due (TS 103 324 allows a generation event to produce no CPM; `CpService` sends one at every step, 32 to 42 bytes when it carries nothing). The type A grouping is the one of `CpService` |
 | `aoc` | the rule above |
 
 ## How it is built into Artery
 
-`checkTriggeringConditions`, `sendCpm` and `checkPerceivedObjectTrigger` are private in `CpService`.
-`artery-ext/aoc/cpservice-protected.patch` makes them protected and virtual (nine lines of `CpService.h`, no change
-of behaviour); the scripts apply it once (`patch_cpservice`, the original kept as `CpService.h.aoc-backup`) and
-build `libartery_envmod.so` again. `AocCpService` overrides the three: the first two only change how often a CPM
-goes out, the third holds the rule. The ETSI rule (`generationRule = "etsi"`) calls the methods of `CpService`.
+`checkTriggeringConditions`, `sendCpm` and `checkPerceivedObjectTrigger` are private in `CpService`, like its
+members. `artery-ext/aoc/cpservice-protected.patch` makes the three virtual and the whole private section of
+`CpService.h` protected (a change of access only, no change of behaviour); the scripts apply it once
+(`patch_cpservice`, the original kept as `CpService.h.aoc-backup`) and build `libartery_envmod.so` again, since
+`libartery_aoc.so` depends on it. A library built before the patch is not taken for the new one: the scripts
+look for a symbol of the rule (`ageLimit`) in `libartery_aoc.so` before they skip the build. `AocCpService`
+overrides the three methods: the first two only change how often a CPM goes out, the third holds the rule. The
+ETSI rule (`generationRule = "etsi"`) calls the methods of `CpService`.
 
 The sender has no covariance of its own tracks in Artery (the CPM carries no confidence), so `sigma_x` and
 `sigma_v` are the nominal values of the note, the same ones the replay's noise model gives the reports. The
@@ -94,10 +104,15 @@ logs of an exported run (`cpm_tx`, `cpm_obj`, `cpm_rx`, `truth`, `nodes`) and pr
   through their CPMs only, since these logs hold no CAM). The control grid must give the cars without CP no CA
   either, so that the objects collective perception is for exist.
 
-With `--against` the same tables of a second run are printed next to the first, with the ratios of the load (bytes
-per second, CPM rate, channel busy ratio) and of the time above the target, and the verdict of H4 on the pair
-(within one point). The Python mirror of the rule (`Rule`, `period`, `sent_at`) is what the tables compare with;
-`tests/test_rulecheck.py` checks it against the theory module (`aoc.theory.reliability`).
+The time above the target of a run is pooled over the object ticks of every receiver (a receiver in range of an
+object for a few ticks does not weigh as much as one there all along); the mean over the receivers with at least
+5 s of object time is printed next to it. With `--against` the same tables of a second run are printed next to
+the first, with the ratios of the load (bytes per second, with and without the empty CPMs, CPM rate, channel
+busy ratio) and of the time above the target, and the verdict of H4 on the pair, once with the channel busy ratio
+as the load (the load of the plan; here the mean over the receptions, which leans to the busy moments) and once
+with the CPM bytes without the empty CPMs, within one point. The Python mirror of the rule (`Rule`, `period`,
+`sent_at`) is what the tables compare with; `tests/test_rulecheck.py` checks it against the theory module
+(`aoc.theory.reliability`) and the tables of the quick run below (`results/e1/`).
 
 `bash d1_grid.sh --control-quick` runs the configuration `control_quick` of `artery-ext/grid/omnetpp.ini` (three runs
 of 60 s at low density and 100 % penetration: `etsi`, `etsi_abs`, `aoc`, with `services-control-100.xml`), exports
@@ -105,29 +120,35 @@ them and prints the check of the `aoc` run against the two others (`--objects al
 
 ## The quick run of Nov 4, 2026 (in the sandbox of this session, Artery e0ddd8c)
 
-Low density, 100 % penetration, 19 senders, 50 s after the warm-up:
+Low density, 100 % penetration, 19 senders, 50 s after the warm-up of 10 s; the tables of the check are in
+`results/e1/` (`quick_aoc_vs_etsi`, `quick_aoc_vs_etsi_abs`, and the printed reports):
 
-| rule | CPM rate per sender | bytes/s in all | objects per CPM | CBR | time above target (all objects) | moving cars sent every | stopped cars sent every |
+| rule | CPM rate per sender | bytes/s in all (without the empty CPMs) | objects per CPM | CBR | time above target (all objects, pooled) | moving cars sent every | stopped cars sent every |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| etsi | 6.4 Hz | 8374 | 1.31 | 0.050 | 0.867 | 0.2 to 0.3 s | 0.3 to 0.4 s |
-| etsi_abs | 6.4 Hz | 8436 | 1.32 | 0.050 | 0.869 | 0.2 to 0.4 s | 1.0 s |
-| aoc | 2.5 Hz | 3199 | 1.12 | 0.032 | 0.863 | 0.9 s | 1.0 to 4.5 s |
+| etsi | 6.4 Hz | 8374 (6989) | 1.31 | 0.050 | 0.964 | 0.2 to 0.3 s | 0.3 to 0.4 s |
+| etsi_abs | 4.6 Hz | 7322 (7322) | 1.85 | 0.046 | 0.966 | 0.2 to 0.4 s | 1.0 s |
+| aoc | 2.6 Hz | 3361 (3361) | 1.14 | 0.033 | 0.966 | 0.8 to 0.9 s | 1.2 to 4.4 s |
 
-The AoC rule sends the moving cars every 0.9 s (88 % of the intervals at the period; 6 % shorter, a new object id
-or a state change; 7 % longer, the object out of view for a while) and the stopped cars every 4.5 s when they stay
-stopped (half of the intervals; 29 % end with the car moving again, which sends it at once). It sends 62 % fewer
-bytes than ETSI (40 % of the CPMs) for a time above the target 0.5 point lower: the verdict of H4 on this pair is
-PASS within the tolerance of one point, but this run is not the test of H4 (the objects here are the equipped cars
-themselves, which a CAM covers in the real grid). `CpService` sends the stopped cars every 0.3 to 0.4 s because it
-takes the position change relative to the moving sender; `etsi_abs` sends them every second (rule 2e) and the
-moving cars a little more often, for the same number of CPMs (a CPM goes out at every step in both) and the same
-load. The real test of H4 is the control grid (E2), with the objects the metric is for.
+The AoC rule sends the moving cars at the period (89 % of the intervals at 0.9 s, or 0.8 s when the position of
+the sender is older at the step; 5 % shorter: a new object id, or a car that stopped and was sent at once; 6 %
+longer: the object out of view for a while) and the stopped cars every 4.4 s when they stay stopped (half of the
+intervals; the other half end with the car moving again, which sends it at once). It sends 60 % fewer bytes than
+ETSI (52 % fewer than the bytes ETSI carries in CPMs that say something: a third of the CPMs of `CpService` are
+empty, 32 to 42 bytes, which the standard does not require) and 54 % fewer than `etsi_abs`, for the same time
+above the target (0.966 against 0.964 and 0.966; known 0.966 in the three runs). The channel busy ratio falls
+from 0.050 to 0.033 (the CAMs of the 19 cars set the floor). `CpService` sends the stopped cars every 0.3 to 0.4 s
+because it takes the position change relative to the moving sender; `etsi_abs` sends them every second (rule 2e)
+and the moving cars a little more often. The verdict of H4 on these pairs is PASS on both loads, but this run is
+not the test of H4: the objects here are the equipped cars themselves, which a CAM covers in the real grid, and
+the channel is free. The real test is the control grid (E2), with the objects the metric is for.
 
 ## What E2 must add
 
 - The control scenario: the cars without CP without CA either (the equipped set drawn once in the route files),
-  so that the receiver metric has its objects; a channel load factor that bites (the core grid stays under a
-  busy ratio of 0.2: more senders, or a load generator); the configurations `aoc` with n = 1 and 2, with and
-  without the deviation trigger, against `etsi` and `etsi_abs`; `aoc` with the assumed q as a sensitivity.
+  so that the receiver metric has its objects (the busy ratio of the control grid is then not the one of the core
+  grid at the same penetration); a channel load factor that bites (the core grid stays under a busy ratio of 0.2:
+  more senders, or a load generator); the configurations `aoc` with n = 1 and 2, with and without the deviation
+  trigger, against `etsi` and `etsi_abs`; `aoc` with the assumed q as a sensitivity. With DCC on, the rule's
+  look-ahead is the DCC interval: tested here with the channel free only.
 - The receiver's curve with the stopped state (the replay's discount), so that both sides use the same curve.
 - The metric of F9 from the replay too (B3's belief instead of `alpha(age)` of the raw report).

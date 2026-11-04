@@ -755,18 +755,20 @@ C1_FILE_EOF
 //
 // generationRule = "etsi": the service behaves exactly like CpService (the rules of TS 103 324: objectInclusionConfig,
 // minInterval, maxInterval, withDccRestriction as in CpService). "etsi_abs": the same rules, with the position change
-// of an object (4 m) taken on its absolute position; CpService takes it on the position relative to the sender, so a
-// moving sender sends every stopped object it sees at every step.
+// of an object (4 m) taken on its absolute position (CpService takes it on the position relative to the sender, so a
+// moving sender sends every stopped object it sees at every step), and a CPM only when something is due (emptyCpm).
 //
 // generationRule = "aoc": each perceived object is sent with the period of the theory note, (age limit - delay) / n,
-// where the age limit is the age at which the reliability alpha(age) of the object's class falls to targetAlpha
-// (alpha(age) = 1 - exp(-tolerance^2 / (2 (sigmaX^2 + sigmaV^2 age^2 + q age^3 / 3)))). The rule is evaluated at
-// every generation step (minInterval, or the DCC interval with withDccRestriction): an object goes into the CPM of
-// this step when its last report would be older than the period at the next step; a newly seen object goes in at
-// once. An object slower than stoppedSpeed takes the curve of a parked vehicle (qStopped, sigmaXStopped,
-// sigmaVStopped). The period never exceeds maxPeriod. With deviationFraction > 0 an object also goes in when the receiver's prediction (the last sent
-// position moved at the last sent velocity) is off by that fraction of the tolerance. A CPM is sent only when an
-// object or the sensor information is due, and at least every maxInterval; with emptyCpm = true at every step.
+// where the age limit is the age at which the reliability alpha(age) of the report the receiver holds falls to
+// targetAlpha (alpha(age) = 1 - exp(-tolerance^2 / (2 (sigmaX^2 + sigmaV^2 age^2 + q age^3 / 3))), q by the class and
+// the state of the report). The rule is evaluated at every update of the service: an object goes into the CPM of
+// this step when its last report would be older than the period at the next evaluation (one update interval away,
+// or one generation interval, the DCC interval, once a CPM goes out at this step); a newly seen object goes in at
+// once, and so does an object that changed state (stopped, moving) since its last report. An object slower than
+// stoppedSpeed takes the curve of a parked vehicle (qStopped, sigmaXStopped, sigmaVStopped). The period never
+// exceeds maxPeriod. With deviationFraction > 0 an object also goes in when the receiver's prediction (the last
+// sent position moved at the last sent velocity) is off by that fraction of the tolerance. A CPM is sent only when
+// an object or the sensor information is due, and at least every maxInterval; with emptyCpm = true at every step.
 //
 // Each received CPM is dropped with probability dropProbability, before the service reads it (the random numbers
 // of the module, so a seed set gives the same drops). A dropped CPM is announced with the signal CpmDropped, which
@@ -848,6 +850,7 @@ public:
         omnetpp::SimTime included;    // the last inclusion in a CPM
         double xi = 0.0, yi = 0.0;    // the position and the velocity sent then
         double vxi = 0.0, vyi = 0.0;
+        bool stoppedSent = false;     // the state sent then: the curve the receiver ages the report with
         bool haveIncluded = false;
     };
 
@@ -857,7 +860,9 @@ protected:
     bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now) override;
 
 private:
-    Curve curveOf(const PerceivedObjectSnapshot&) const;
+    Curve curveOf(const PerceivedObjectSnapshot&, bool stopped) const;
+    bool isStopped(const PerceivedObjectSnapshot&) const;
+    void markSent(ObjectMemory&, const PerceivedObjectSnapshot&, const omnetpp::SimTime& T_now, double x, double y) const;
     static std::string className(int stationType);
     void parseQByClass(const std::string&);
 
@@ -879,12 +884,16 @@ private:
     double mMaxPeriod = 4.5;          // the period never exceeds this (the receivers forget after their hold)
     bool mEmptyCpm = false;           // send a CPM at every generation step even without an object due
     omnetpp::SimTime mGenStep;        // the generation interval in force at the current step
+    bool mCpmGoesOutAnyway = false;   // at this step a CPM goes out whatever the objects say (sensor information, maxInterval)
     std::unordered_map<int, ObjectMemory> mMemory;
 
     // counters, recorded as scalars
     unsigned long mIncludedNew = 0;
     unsigned long mIncludedAge = 0;
+    unsigned long mIncludedState = 0;
     unsigned long mIncludedDeviation = 0;
+    unsigned long mIncludedEtsi = 0;
+    unsigned long mIncludedTypeA = 0;
     unsigned long mCpmSkipped = 0;
     unsigned long mCpmSent = 0;
 
@@ -909,9 +918,11 @@ C1_FILE_EOF
  * (Step 4, eq. "rule") sends each object with the period T = (age limit - delay) / n, where the age limit
  * is the age at which alpha falls to the target: the reliability at the receivers then stays above the
  * target unless n reports in a row are lost. Here the rule is applied at every generation step of the
- * service (every minInterval, or the DCC interval): an object is included in the CPM of this step when its
- * report would be older than T at the next step. A newly seen object is included at once. A stopped object
- * (speed below stoppedSpeed) takes the curve of a parked vehicle. The period never exceeds maxPeriod: a receiver
+ * service: an object is included in the CPM of this step when its report would be older than T at the next
+ * evaluation (one update interval away; one generation interval, the DCC interval, once a CPM goes out at this
+ * step). The curve is the one of the report the receiver holds (the class and the state sent). A newly seen
+ * object is included at once, and so is an object that changed state (stopped, moving) since its last report. A
+ * stopped object (speed below stoppedSpeed) takes the curve of a parked vehicle. The period never exceeds maxPeriod: a receiver
  * forgets an object after its memory hold (5 s in the evaluation of the plan), whatever the curve says. With
  * deviationFraction > 0 the sender also
  * includes an object when the receiver's prediction (the last sent position moved at the last sent
@@ -921,8 +932,9 @@ C1_FILE_EOF
  *
  * With generationRule = "etsi" the service behaves exactly like CpService (the rules of TS 103 324). With
  * "etsi_abs" it applies the same rules, except that the position change of an object (rule 2b, 4 m) is taken on its
- * absolute position: CpService takes it on the position relative to the sender, so a sender that moves sends every
- * stopped object it sees at every step. The control grid compares the AoC rule with both.
+ * absolute position (CpService takes it on the position relative to the sender, so a sender that moves sends every
+ * stopped object it sees at every step), and that a CPM goes out only when something is due (emptyCpm as above;
+ * the standard allows a generation event to produce no CPM). The control grid compares the AoC rule with both.
  *
  * The loss (dropProbability) is drawn per received CPM, independently, with the random number generator of
  * the module: the same seed set gives the same drops. A dropped CPM never reaches the service, so the
@@ -1044,11 +1056,26 @@ void AocCpService::parseQByClass(const std::string& text)
     }
 }
 
-AocCpService::Curve AocCpService::curveOf(const PerceivedObjectSnapshot& po) const
+bool AocCpService::isStopped(const PerceivedObjectSnapshot& po) const
+{
+    return mStoppedSpeed > 0.0 && po.hasVelocity && po.speedMps < mStoppedSpeed;
+}
+
+void AocCpService::markSent(ObjectMemory& mem, const PerceivedObjectSnapshot& po, const SimTime& T_now, double x, double y) const
+{
+    mem.included = T_now;
+    mem.xi = x;
+    mem.yi = y;
+    mem.vxi = mem.haveVelocity ? mem.vx : 0.0;
+    mem.vyi = mem.haveVelocity ? mem.vy : 0.0;
+    mem.stoppedSent = isStopped(po);
+    mem.haveIncluded = true;
+}
+
+AocCpService::Curve AocCpService::curveOf(const PerceivedObjectSnapshot& po, bool stopped) const
 {
     Curve c;
-    const double speed = po.hasVelocity ? po.speedMps : 0.0;
-    if (mStoppedSpeed > 0.0 && po.hasVelocity && speed < mStoppedSpeed) {
+    if (stopped) {
         c.q = mQStopped;
         c.sigmaX = mSigmaXStopped;
         c.sigmaV = mSigmaVStopped;
@@ -1127,7 +1154,10 @@ void AocCpService::finish()
         recordScalar("aocCpmSkipped", mCpmSkipped);
         recordScalar("aocIncludedNew", mIncludedNew);
         recordScalar("aocIncludedAge", mIncludedAge);
+        recordScalar("aocIncludedState", mIncludedState);
         recordScalar("aocIncludedDeviation", mIncludedDeviation);
+        recordScalar("aocIncludedEtsi", mIncludedEtsi);
+        recordScalar("aocIncludedTypeA", mIncludedTypeA);
     }
     CpService::finish();
 }
@@ -1189,11 +1219,12 @@ void AocCpService::sendCpm(const SimTime& T_now)
     captureSensorSnapshot(T_now, lemSensorsSnapshot);
     capturePerceivedObjectSnapshot(T_now, referenceTime, lemObjectsSnapshot, objectVdpSnapshots);
 
-    // what is due at this step: the objects of the rule, the sensor information, the CPM of maxInterval
-    const bool objectsDue = checkPerceivedObjectTrigger(T_now);
+    // what is due at this step: the sensor information, the CPM of maxInterval, then the objects of the rule
     const bool sensorsDue = checkSensorInformationTrigger(T_now);
     const bool periodicDue = (T_now - mLastCpmTimestamp >= mGenCpmMax);
-    if (!objectsDue && !sensorsDue && !periodicDue && !mEmptyCpm && !mEtsiAbsolute) {      // the rules of ETSI send a CPM at every step
+    mCpmGoesOutAnyway = sensorsDue || periodicDue || mEmptyCpm;
+    const bool objectsDue = checkPerceivedObjectTrigger(T_now);
+    if (!objectsDue && !mCpmGoesOutAnyway) {
         ++mCpmSkipped;
         return;
     }
@@ -1259,9 +1290,12 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
             if (po.type != PerceivedObjectType::TypeA) {
                 continue;
             }
+            if (po.objectAgeMs < (T_now - mLastCpmTimestamp).dbl() * 1000) {  // newly detected
+                includeAllTypeA = true;
+                break;
+            }
             auto it = mPerceivedObjectHistories.find(static_cast<int>(po.cpsId));
-            if (po.objectAgeMs < (T_now - mLastCpmTimestamp).dbl() * 1000 || it == mPerceivedObjectHistories.end() ||
-                T_now - it->second.inclusion >= mGenCpmMax / 2) {
+            if (it != mPerceivedObjectHistories.end() && T_now - it->second.inclusion >= mGenCpmMax / 2) {
                 includeAllTypeA = true;
                 break;
             }
@@ -1270,11 +1304,18 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
 
     const double egoX = mVdpSnapshot.position.x.value();
     const double egoY = mVdpSnapshot.position.y.value();
-    const double step = mGenStep.dbl();
+    // the report is measured before this step: the lag of the position of the sender plus the lag of the measurement
+    const double refLag = std::max(0.0, (T_now - mVdpSnapshot.updated).dbl());
     const double tiny = 1.0e-6;
+    // the next evaluation is one update interval away (the gate of the service is open until a CPM goes out), or one
+    // generation interval away once a CPM goes out at this step (the DCC interval, or minInterval): two passes, the
+    // second one only when a CPM goes out
+    const double stepShort = std::min(mGenCpmMin, mGenStep).dbl();
+    const double stepLong = mGenStep.dbl();
 
     std::vector<std::size_t> selected;
     selected.reserve(mSelectedCpmObjects.size());
+    std::vector<std::size_t> dueLater;                                 // due before the next step once a CPM goes out
 
     for (const auto idx : mSelectedCpmObjects) {
         auto& po = mPerceivedObjectSnapshot[idx];
@@ -1296,7 +1337,11 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
         const int key = static_cast<int>(po.cpsId);
         const double x = egoX + po.xCm / 100.0;
         const double y = egoY + po.yCm / 100.0;
+        auto histIt = mPerceivedObjectHistories.find(key);
         ObjectMemory& mem = mMemory[key];
+        if (histIt == mPerceivedObjectHistories.end()) {
+            mem = ObjectMemory();                                      // a new object (or an object id reused for another one)
+        }
         if (mem.haveSeen && T_now > mem.seen) {
             const double dt = (T_now - mem.seen).dbl();
             mem.vx = (x - mem.x) / dt;
@@ -1309,7 +1354,6 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
         mem.y = y;
 
         // the cached values of CpService, for the utility function and the sort
-        auto histIt = mPerceivedObjectHistories.find(key);
         if (histIt != mPerceivedObjectHistories.end()) {
             const PerceivedObjectHistory& history = histIt->second;
             po.haveHistory = true;
@@ -1336,22 +1380,32 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
                           po.orientationDiffDeg >= mMinGroundVelocityOrientationChangeThreshold.value() ||
                           po.sinceLastInclusionSeconds >= mGenCpmMax.dbl();
                 if (include) {
-                    ++mIncludedAge;
+                    ++mIncludedEtsi;
                 }
+            }
+            if (include && po.type == PerceivedObjectType::TypeA) {
+                ++mIncludedTypeA;
             }
         } else if (!mem.haveIncluded || !po.haveHistory) {
             // a new object: included at once, as in the rules of ETSI
             include = true;
             ++mIncludedNew;
+        } else if (isStopped(po) != mem.stoppedSent) {
+            // the object changed state since its last report: the receiver ages it with the wrong curve until the next one
+            include = true;
+            ++mIncludedState;
         } else {
-            // the rule of the note: the report must not be older than the period at the next step
-            const Curve curve = curveOf(po);
+            // the rule of the note: the report must not be older than the period at the next evaluation. The curve is the
+            // one of the report the receiver holds (its class and its state), not of the object now
+            const Curve curve = curveOf(po, mem.stoppedSent);
             const double T = period(curve, mTargetAlpha, mTolerance, mDelayEstimate, mRepeats, mMaxPeriod);
-            const double lag = std::max(0L, po.measurementDeltaTimeMs) / 1000.0;  // the report is measured before the step
-            const double ageAtNextStep = (T_now - mem.included).dbl() + lag + step;
-            if (ageAtNextStep > T + tiny) {
+            const double lag = refLag + std::max(0L, po.measurementDeltaTimeMs) / 1000.0;
+            const double age = (T_now - mem.included).dbl() + lag;
+            if (age + stepShort > T + tiny) {
                 include = true;
                 ++mIncludedAge;
+            } else if (age + stepLong > T + tiny) {
+                dueLater.push_back(idx);                               // due only if a CPM goes out at this step anyway
             } else if (mDeviationFraction > 0.0 && mem.haveVelocity) {
                 // what the sender knows: the receiver's prediction against the object now
                 const double dt = (T_now - mem.included).dbl();
@@ -1365,13 +1419,22 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
         }
         if (include) {
             selected.push_back(idx);
-            mem.included = T_now;
-            mem.xi = x;
-            mem.yi = y;
-            mem.vxi = mem.haveVelocity ? mem.vx : 0.0;
-            mem.vyi = mem.haveVelocity ? mem.vy : 0.0;
-            mem.haveIncluded = true;
+            markSent(mem, po, T_now, x, y);
         }
+    }
+
+    // the second pass: a CPM goes out at this step (objects due, or the sensor information, or the periodic CPM), so the
+    // objects due before the next generation step go in too
+    if (!dueLater.empty() && (!selected.empty() || mCpmGoesOutAnyway)) {
+        for (const auto idx : dueLater) {
+            auto& po = mPerceivedObjectSnapshot[idx];
+            const double x = egoX + po.xCm / 100.0;
+            const double y = egoY + po.yCm / 100.0;
+            selected.push_back(idx);
+            markSent(mMemory[static_cast<int>(po.cpsId)], po, T_now, x, y);
+            ++mIncludedAge;
+        }
+        std::sort(selected.begin(), selected.end());
     }
 
     // forget the objects not seen for a while (the CPM object ids are reused after a retention period)
@@ -2517,7 +2580,7 @@ patch_cpservice || finish_fail "Cannot patch $ARTERY_DIR/src/artery/envmod/servi
 SRC_CHANGED="$CHANGED"
 step_done "sources" "OK" "$( [ "$SRC_CHANGED" = 1 ] && echo "installed in scenarios/aoc" || echo "already up to date" )"
 if [ "$SRC_CHANGED" = 1 ] || [ ! -f "$LIB" ] || ! grep -q 'scenarios/aoc' "$BUILD_DIR/run-artery.ini" 2>/dev/null \
-   || ! nm -D "$LIB" 2>/dev/null | grep -q AocCpService; then
+   || ! nm -D "$LIB" 2>/dev/null | grep -q 'AocCpService.*ageLimit'; then
     say "Building the AoC sources with $C1_JOBS jobs. Logs: $LOG_DIR/cmake.log and build.log"
     if ! ( cd "$ARTERY_DIR" && cmake -S . -B build ) > "$LOG_DIR/cmake.log" 2>&1; then
         step_done "build" "FAILED" "cmake configure"

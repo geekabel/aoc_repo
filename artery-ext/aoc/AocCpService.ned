@@ -4,18 +4,20 @@
 //
 // generationRule = "etsi": the service behaves exactly like CpService (the rules of TS 103 324: objectInclusionConfig,
 // minInterval, maxInterval, withDccRestriction as in CpService). "etsi_abs": the same rules, with the position change
-// of an object (4 m) taken on its absolute position; CpService takes it on the position relative to the sender, so a
-// moving sender sends every stopped object it sees at every step.
+// of an object (4 m) taken on its absolute position (CpService takes it on the position relative to the sender, so a
+// moving sender sends every stopped object it sees at every step), and a CPM only when something is due (emptyCpm).
 //
 // generationRule = "aoc": each perceived object is sent with the period of the theory note, (age limit - delay) / n,
-// where the age limit is the age at which the reliability alpha(age) of the object's class falls to targetAlpha
-// (alpha(age) = 1 - exp(-tolerance^2 / (2 (sigmaX^2 + sigmaV^2 age^2 + q age^3 / 3)))). The rule is evaluated at
-// every generation step (minInterval, or the DCC interval with withDccRestriction): an object goes into the CPM of
-// this step when its last report would be older than the period at the next step; a newly seen object goes in at
-// once. An object slower than stoppedSpeed takes the curve of a parked vehicle (qStopped, sigmaXStopped,
-// sigmaVStopped). The period never exceeds maxPeriod. With deviationFraction > 0 an object also goes in when the receiver's prediction (the last sent
-// position moved at the last sent velocity) is off by that fraction of the tolerance. A CPM is sent only when an
-// object or the sensor information is due, and at least every maxInterval; with emptyCpm = true at every step.
+// where the age limit is the age at which the reliability alpha(age) of the report the receiver holds falls to
+// targetAlpha (alpha(age) = 1 - exp(-tolerance^2 / (2 (sigmaX^2 + sigmaV^2 age^2 + q age^3 / 3))), q by the class and
+// the state of the report). The rule is evaluated at every update of the service: an object goes into the CPM of
+// this step when its last report would be older than the period at the next evaluation (one update interval away,
+// or one generation interval, the DCC interval, once a CPM goes out at this step); a newly seen object goes in at
+// once, and so does an object that changed state (stopped, moving) since its last report. An object slower than
+// stoppedSpeed takes the curve of a parked vehicle (qStopped, sigmaXStopped, sigmaVStopped). The period never
+// exceeds maxPeriod. With deviationFraction > 0 an object also goes in when the receiver's prediction (the last
+// sent position moved at the last sent velocity) is off by that fraction of the tolerance. A CPM is sent only when
+// an object or the sensor information is due, and at least every maxInterval; with emptyCpm = true at every step.
 //
 // Each received CPM is dropped with probability dropProbability, before the service reads it (the random numbers
 // of the module, so a seed set gives the same drops). A dropped CPM is announced with the signal CpmDropped, which

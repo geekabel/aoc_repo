@@ -79,9 +79,10 @@ the rules of ETSI with the position change of an object taken on its absolute po
 position relative to the sender, so a moving sender sends every stopped object it sees at every step). See
 `docs/generation_rule.md`.
 
-The rule overrides three methods of `CpService` that are private in Artery. `aoc/cpservice-protected.patch` makes
-them protected and virtual in `src/artery/envmod/service/CpService.h` (nine lines, no change of behaviour); the
-scripts apply it once and build `libartery_envmod.so` again.
+The rule overrides three methods of `CpService` that are private in Artery, and reads its members.
+`aoc/cpservice-protected.patch` makes the three virtual and the private section of `src/artery/envmod/service/CpService.h`
+protected (a change of access only, no change of behaviour); the scripts apply it once and build `libartery_envmod.so`
+again.
 
 **The controlled loss** (task C1). Each received CPM is dropped with probability `dropProbability` before the
 service reads it, with the random number generator of the module (a seed set gives the same drops), and the signal
@@ -94,7 +95,7 @@ How the scripts (`a8_logger.sh`, `c1_link.sh`, `c5_vru.sh`, `d1_grid.sh`) instal
 1. They copy `aoc/` to `artery/scenarios/aoc`.
 2. They add one block at the end of `artery/scenarios/CMakeLists.txt`. The original file is kept as `CMakeLists.txt.a8-backup`.
 3. They apply `cpservice-protected.patch` to `CpService.h` (the original is kept as `CpService.h.aoc-backup`).
-4. They build the library `libartery_aoc.so`, and `libartery_envmod.so` again after the patch. The rest of Artery is not built again.
+4. They build the library `libartery_aoc.so`, and `libartery_envmod.so` again after the patch. The rest of Artery is not built again. A library without the rule (built before this change) is built again: the scripts look for a symbol of the rule in it.
 
 ## The sensors files
 
