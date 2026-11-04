@@ -30,8 +30,12 @@ a2_alpha_per_class.png
 *.fdb_latexmk
 *.synctex.gz
 
-# simulation results and exports: keep them out of git (the samples in tests/data are the exception)
-results/
+# simulation exports: keep them out of git (the samples in tests/data are the exception); the small tables
+# brought back from the workstation live in results/ (see results/README.md)
+results/**/aoc-*/
+results/**/*.parquet
+results/**/*.tgz
+results/**/*.csv.gz
 *.parquet
 *.vec
 *.sca
