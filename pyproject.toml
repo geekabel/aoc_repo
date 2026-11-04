@@ -40,6 +40,7 @@ aoc-grid = "aoc.analysis.grid:main"
 aoc-gridcheck = "aoc.analysis.gridcheck:main"
 aoc-fit-q = "aoc.analysis.qfit:main"
 aoc-replay-grid = "aoc.analysis.gridreplay:main"
+aoc-database = "aoc.analysis.database:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
