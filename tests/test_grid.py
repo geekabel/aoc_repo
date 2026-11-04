@@ -275,7 +275,8 @@ def test_the_control_configuration_holds_the_factors():
     assert control["*.staticnodes.nodes"] == 'xmldoc("load_${load}.xml")' and control["repeat"] == "4"
     assert ini["General"]["*.rsu*.vanetza[*].dcc.typename"] == '"NoRateControlDccEntity"' and ini["General"]["*.rsu*.middleware.load.rate"] == "25Hz"
     assert control["*.node[*].middleware.cp.generationrule"] == '${grule="etsi","etsi_abs","aoc","aoc","aoc" ! rule}'
-    assert control["*.node[*].middleware.cp.repeats"] == "${n=1,1,1,2,1 ! rule}" and control["*.node[*].middleware.cp.deviationfraction"] == "${dev=0,0,0,0,0.5 ! rule}"
+    assert control["*.node[*].middleware.cp.repeats"] == "${n=1,1,1,2,1 ! rule}"
+    assert control["*.node[*].middleware.cp.deviationfraction"] == "${dev=0,0,0,0,0.5 ! rule}"
     assert control["*.node[*].middleware.services"] == 'xmldoc("services-control.xml")'
 
 
