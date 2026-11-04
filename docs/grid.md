@@ -208,6 +208,14 @@ as failed; the others are still read.
   but 0.20 s at high/100/10hz, where 21 of 36 events have a first age above 0.15 s: the first mark of the
   channel load on the age, the effect the grid is meant to measure.
 
+## The control configurations (task E1)
+
+`services-control-10/25/50/100.xml` are the services files of the grid with `AocCpService` (the CP service of the
+extension) in place of `CpService`, so that the generation rule is a parameter of the run (`generationRule`: `etsi`,
+`etsi_abs`, `aoc`). The configuration `control_quick` runs the three rules once (60 s, low density, 100 %);
+`bash d1_grid.sh --control-quick` runs it, exports the runs and prints the check of the rule (`aoc-rulecheck`).
+The control grid itself is task E2. See `docs/generation_rule.md`.
+
 ## What D1 does not do
 
 - It does not analyse the runs: the replay of B0 to B4 on every run, with the warm-up left out and the two kinds

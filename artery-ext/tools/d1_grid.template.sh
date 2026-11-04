@@ -25,6 +25,8 @@
 # Usage:
 #   bash d1_grid.sh                          the 432 runs that are not done yet (hours; stop and start again at will)
 #   bash d1_grid.sh --quick                  one run of 60 s (low, 100, etsi), to check the chain
+#   bash d1_grid.sh --control-quick          three runs of 60 s (low, 100) with the generation rules etsi, etsi_abs and aoc
+#                                            of AocCpService (task E1), then the check of the rule against the ETSI runs
 #   bash d1_grid.sh --cell low 100 etsi      the 12 runs of one cell
 #   bash d1_grid.sh --runs 3,17-20,41        these run numbers (ranges allowed)
 #   bash d1_grid.sh --check [DIR]            index the results folder again (default: the grid folder)
@@ -84,6 +86,7 @@ D1_DIR="$D1_ROOT/d1"
 LOG_DIR="$D1_DIR/logs"
 REPORT="$D1_DIR/d1_report.txt"
 EXPORTER="$D1_DIR/d1_export.py"
+RULECHECK="$D1_DIR/d1_rulecheck.py"
 CHECKER="$D1_DIR/d1_grid_index.py"
 VENV="$D1_ROOT/aoc-venv"
 EXT_DIR="$ARTERY_DIR/scenarios/aoc"
@@ -181,6 +184,9 @@ D1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocCpService.cc@@
 D1_FILE_EOF
+    put_file "$EXT_DIR/cpservice-protected.patch" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/cpservice-protected.patch@@
+D1_FILE_EOF
 }
 
 # the scenario: the OMNeT++ configuration, the road of C5, the route files of the three densities, the services and the sensors
@@ -231,6 +237,18 @@ D1_FILE_EOF
     put_file "$GRID_DIR/services-grid-100.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/config/services-grid-100.xml@@
 D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-10.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-control-10.xml@@
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-25.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-control-25.xml@@
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-50.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-control-50.xml@@
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-100.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-control-100.xml@@
+D1_FILE_EOF
     put_file "$GRID_DIR/sensors-vru.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/config/sensors-vru.xml@@
 D1_FILE_EOF
@@ -239,6 +257,9 @@ D1_FILE_EOF
 write_exporter() {
     put_file "$EXPORTER" <<'D1_FILE_EOF' || return 1
 @@FILE:src/aoc/io/export.py@@
+D1_FILE_EOF
+    put_file "$RULECHECK" <<'D1_FILE_EOF' || return 1
+@@FILE:src/aoc/analysis/rulecheck.py@@
 D1_FILE_EOF
     put_file "$CHECKER" <<'D1_FILE_EOF' || return 1
 @@FILE:src/aoc/analysis/grid.py@@
@@ -250,6 +271,20 @@ patch_cmake() {
     if grep -q 'add_subdirectory(aoc)' "$CMAKE_FILE"; then return 0; fi
     [ -f "$CMAKE_FILE.a8-backup" ] || cp -p "$CMAKE_FILE" "$CMAKE_FILE.a8-backup" || return 1
     printf '\n# AoC logger (task A8 of the AoC plan)\nif(WITH_ENVMOD)\n    add_subdirectory(aoc)\nendif()\n' >> "$CMAKE_FILE" || return 1
+    CHANGED=1
+}
+
+# the AoC generation rule (task E1) overrides three methods of CpService: this patch makes them protected and virtual in
+# the Artery sources (src/artery/envmod/service/CpService.h). Applied once; a header that already has it is left alone.
+patch_cpservice() {
+    local patch="$EXT_DIR/cpservice-protected.patch" header="$ARTERY_DIR/src/artery/envmod/service/CpService.h"
+    [ -f "$header" ] || return 1
+    if grep -q 'virtual bool checkPerceivedObjectTrigger' "$header"; then return 0; fi
+    [ -f "$header.aoc-backup" ] || cp -p "$header" "$header.aoc-backup" || return 1
+    if [ -d "$ARTERY_DIR/.git" ] && git -C "$ARTERY_DIR" apply "$patch" >/dev/null 2>&1; then :;
+    elif ( cd "$ARTERY_DIR" && patch -p1 --forward --silent < "$patch" ) >/dev/null 2>&1; then :;
+    else return 1; fi
+    grep -q 'virtual bool checkPerceivedObjectTrigger' "$header" || return 1
     CHANGED=1
 }
 
@@ -346,6 +381,7 @@ cell_runs() {
 case "${1:-}" in
     "") RUN_LIST="$(seq -s ' ' 0 $((N_RUNS - 1)))" ;;
     --quick) CONFIG="grid_quick"; RUN_LIST="0"; D1_SIM_TIME="60s" ;;
+    --control-quick) CONFIG="control_quick"; RUN_LIST="0 1 2"; D1_SIM_TIME="60s" ;;
     --runs) [ -n "${2:-}" ] || { echo "D1: --runs needs a list, for example 3,17-20,41"; exit 2; }; RUN_LIST="$(parse_runs "$2")" || exit 2 ;;
     --cell) [ -n "${4:-}" ] || { echo "D1: --cell needs DENSITY PEN MSG, for example low 100 etsi"; exit 2; }; RUN_LIST="$(cell_runs "$2" "$3" "$4")" || exit 2 ;;
     --check) MODE="check"; CHECK_DIR="${2:-}" ;;
@@ -429,6 +465,7 @@ T0=$(date +%s)
 CHANGED=0
 write_sources || finish_fail "Cannot write the AoC sources to $EXT_DIR." "Check the rights of the Artery folder." "" ""
 patch_cmake || finish_fail "Cannot change $CMAKE_FILE." "Check the rights of the Artery folder." "" ""
+patch_cpservice || finish_fail "Cannot patch $ARTERY_DIR/src/artery/envmod/service/CpService.h for the AoC generation rule." "Check that the Artery sources are the pinned commit (a6_install.sh) and that git or patch is installed; the file cpservice-protected.patch in $EXT_DIR holds the change." "" ""
 SRC_CHANGED="$CHANGED"
 step_done "sources" "OK" "$( [ "$SRC_CHANGED" = 1 ] && echo "installed in scenarios/aoc" || echo "already up to date" )"
 if [ "$SRC_CHANGED" = 1 ] || [ ! -f "$LIB" ] || ! grep -q 'scenarios/aoc' "$BUILD_DIR/run-artery.ini" 2>/dev/null \
@@ -553,6 +590,13 @@ if [ "$CONFIG" = "grid" ]; then
         finish_fail "The index of the results did not run." "Paste the report in the chat." "$RES" "$SUMMARY"
     fi
     step_done "index" "OK" "$(fmt_dur $(( $(date +%s) - T0 )))"
+elif [ "$CONFIG" = "control_quick" ]; then
+    # the check of the rule (task E1): the aoc run against the two ETSI runs, after a warm-up of 10 s
+    # every car of the quick run is a station, so the receiver metric counts every object (--objects all)
+    SUMMARY="$("$VENV/bin/python" "$RULECHECK" "$RES/aoc-$CONFIG-2" --against "$RES/aoc-$CONFIG-0" --warmup 10 --objects all --out "$RES/rulecheck_vs_etsi" 2>&1
+               echo; "$VENV/bin/python" "$RULECHECK" "$RES/aoc-$CONFIG-2" --against "$RES/aoc-$CONFIG-1" --warmup 10 --objects all --out "$RES/rulecheck_vs_etsi_abs" 2>&1 | tail -n 4)"
+    IRC=0
+    step_done "summary" "OK" "rule check"
 else
     SUMMARY="$("$VENV/bin/python" - "$RES/aoc-$CONFIG-0/parquet/export_summary.json" <<'PYEOF' 2>&1
 import json, sys

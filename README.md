@@ -64,6 +64,7 @@ Other commands:
 | `aoc-replay-grid RESULT_FOLDER --out DIR [--q-from qfit.csv]` | Replays the five ways on every run of the grid, one receiver at a time, from the warm-up on: the metrics per run, way and hold, the reliability diagrams, the belief of the egos in their pedestrian during the occlusion (D3; hours) |
 | `aoc-database [--results results]` | Builds the results database from the tables of D2 and D3 in the repository: per cell with confidence intervals, the tests of H1 and H3, the hold check, the reliability diagrams, the events, a summary (D4; seconds) |
 | `aoc-grid-figures [--results results] [--out figures]` | Draws the figures F2, F5, F7 and F8 of the papers from the database (D5; seconds); `make figures` runs them with the other figure scripts |
+| `aoc-rulecheck RUN_DIR [--against OTHER]` | Checks the AoC generation rule in an exported run (E1): the CPM rate and bytes per sender, the intervals between two reports of an object against the period of the rule, the time the receivers are above the target; the ratios against a second run and the verdict of H4 on the pair (seconds) |
 
 ## Typical uses
 

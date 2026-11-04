@@ -1,0 +1,27 @@
+diff --git a/src/artery/envmod/service/CpService.h b/src/artery/envmod/service/CpService.h
+index b0c695f..25c5899 100644
+--- a/src/artery/envmod/service/CpService.h
++++ b/src/artery/envmod/service/CpService.h
+@@ -105,9 +105,10 @@ public:
+     void indicate(const vanetza::btp::DataIndication&, std::unique_ptr<vanetza::UpPacket>) override;
+     void trigger() override;
+ 
+-private:
+-    void checkTriggeringConditions(const omnetpp::SimTime& T_now);
+-    void sendCpm(const omnetpp::SimTime& T_now);
++protected:
++    // protected and virtual for the AoC generation rule (artery-ext/aoc/AocCpService of the AoC plan, task E1)
++    virtual void checkTriggeringConditions(const omnetpp::SimTime& T_now);
++    virtual void sendCpm(const omnetpp::SimTime& T_now);
+     void captureVdpSnapshot();
+     void captureSensorSnapshot(const omnetpp::SimTime& T_now, const std::vector<Sensor*>& sensors);
+     ObjectVdpSnapshotMap captureObjectVdpSnapshot(const LocalEnvironmentModel::TrackedObjects& objects) const;
+@@ -116,7 +117,7 @@ private:
+         const ObjectVdpSnapshotMap& objectVdpSnapshots);
+     bool checkSensorInformationTrigger(const omnetpp::SimTime& T_now);
+     bool checkPerceptionRegionTrigger();
+-    bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now);
++    virtual bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now);
+     double calculateUtilityFunction(
+         const PerceivedObjectSnapshot& po, double distanceDiff, double speedDiff, double orientationDiff, double lastInclusionSeconds);
+     void sortPerceivedObjects();

@@ -20,4 +20,6 @@ Written:
   gridreplay   the replay of the five ways on every run of the grid, one receiver at a time (D3, command ``aoc-replay-grid``)
   database     the results database: the tables of D3 per cell with confidence intervals, the tests of H1 and H3 (D4, command ``aoc-database``)
   gridfigures  the figures F2, F5, F7 and F8 of the papers, drawn from the database (D5, command ``aoc-grid-figures``)
+  rulecheck    the check of the AoC generation rule of AocCpService in an exported run: the senders, the intervals against the
+               rule, the time above the target at the receivers (E1, command ``aoc-rulecheck``)
 """

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2), penetration 100%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA and CP, the truck of the events included (no filter). -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+	</service>
+</services>

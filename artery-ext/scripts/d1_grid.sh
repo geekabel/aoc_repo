@@ -25,6 +25,8 @@
 # Usage:
 #   bash d1_grid.sh                          the 432 runs that are not done yet (hours; stop and start again at will)
 #   bash d1_grid.sh --quick                  one run of 60 s (low, 100, etsi), to check the chain
+#   bash d1_grid.sh --control-quick          three runs of 60 s (low, 100) with the generation rules etsi, etsi_abs and aoc
+#                                            of AocCpService (task E1), then the check of the rule against the ETSI runs
 #   bash d1_grid.sh --cell low 100 etsi      the 12 runs of one cell
 #   bash d1_grid.sh --runs 3,17-20,41        these run numbers (ranges allowed)
 #   bash d1_grid.sh --check [DIR]            index the results folder again (default: the grid folder)
@@ -84,6 +86,7 @@ D1_DIR="$D1_ROOT/d1"
 LOG_DIR="$D1_DIR/logs"
 REPORT="$D1_DIR/d1_report.txt"
 EXPORTER="$D1_DIR/d1_export.py"
+RULECHECK="$D1_DIR/d1_rulecheck.py"
 CHECKER="$D1_DIR/d1_grid_index.py"
 VENV="$D1_ROOT/aoc-venv"
 EXT_DIR="$ARTERY_DIR/scenarios/aoc"
@@ -760,16 +763,27 @@ void AocLogger::dumpLocal()
 D1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.ned" <<'D1_FILE_EOF' || return 1
 //
-// AocCpService: the collective perception service of Artery, plus a controlled loss of received CPMs.
+// AocCpService: the collective perception service of Artery, plus the AoC generation rule (task E1 of the AoC
+// plan) and a controlled loss of received CPMs (task C1).
 //
-// Each received CPM is dropped with probability dropProbability, before the service reads it.
-// The drop uses the random number generator of the module, so a seed set gives the same drops.
-// A dropped CPM is announced with the signal CpmDropped, which the AoC logger writes to cpm_drop.csv.
-// With dropProbability = 0 the service behaves exactly like CpService.
+// generationRule = "etsi": the service behaves exactly like CpService (the rules of TS 103 324: objectInclusionConfig,
+// minInterval, maxInterval, withDccRestriction as in CpService). "etsi_abs": the same rules, with the position change
+// of an object (4 m) taken on its absolute position; CpService takes it on the position relative to the sender, so a
+// moving sender sends every stopped object it sees at every step.
 //
-// Used by the single-link validation scenario (task C1): a fixed message period (minInterval = maxInterval,
-// withDccRestriction = false, objectInclusionConfig = 0) and a known loss, so that the age law of the
-// theory note can be checked against the logs.
+// generationRule = "aoc": each perceived object is sent with the period of the theory note, (age limit - delay) / n,
+// where the age limit is the age at which the reliability alpha(age) of the object's class falls to targetAlpha
+// (alpha(age) = 1 - exp(-tolerance^2 / (2 (sigmaX^2 + sigmaV^2 age^2 + q age^3 / 3)))). The rule is evaluated at
+// every generation step (minInterval, or the DCC interval with withDccRestriction): an object goes into the CPM of
+// this step when its last report would be older than the period at the next step; a newly seen object goes in at
+// once. An object slower than stoppedSpeed takes the curve of a parked vehicle (qStopped, sigmaXStopped,
+// sigmaVStopped). The period never exceeds maxPeriod. With deviationFraction > 0 an object also goes in when the receiver's prediction (the last sent
+// position moved at the last sent velocity) is off by that fraction of the tolerance. A CPM is sent only when an
+// object or the sensor information is due, and at least every maxInterval; with emptyCpm = true at every step.
+//
+// Each received CPM is dropped with probability dropProbability, before the service reads it (the random numbers
+// of the module, so a seed set gives the same drops). A dropped CPM is announced with the signal CpmDropped, which
+// the AoC logger writes to cpm_drop.csv.
 //
 import artery.envmod.service.CpService;
 
@@ -779,17 +793,40 @@ simple AocCpService extends CpService
         @class(artery::AocCpService);
         @signal[CpmDropped](type=artery::CpObject);
         double dropProbability = default(0.0);     // 0 to 1 (excluded): each received CPM is lost with this probability
+
+        string generationRule = default("etsi");   // "etsi", "etsi_abs" or "aoc"
+        double targetAlpha = default(0.9);         // the target reliability at the receivers
+        double tolerance @unit(m) = default(1.5m); // the tolerance eps of the reliability
+        double delayEstimate @unit(s) = default(0.1s);  // the delay d the sender assumes between its measurement and the reception
+        int repeats = default(1);                  // n: the reports sent while the reliability is above the target
+        double sigmaX @unit(m) = default(0.3m);    // the position error of the sender's reports
+        double sigmaV @unit(mps) = default(0.5mps);  // the speed error of the sender's reports
+        // the motion value q per class (the names of the exporter: passenger_car, heavy_truck, pedestrian, cyclist, bus, ...),
+        // with a "default" for the classes not named; the fitted values of D3 by default
+        string qByClass = default("passenger_car=0.269,heavy_truck=0.118,pedestrian=0.0252,cyclist=0.98,default=0.269");
+        double stoppedSpeed @unit(mps) = default(0.5mps);  // below this speed an object takes the curve of a parked vehicle; 0 turns it off
+        double qStopped = default(0.001);          // the parked vehicle of the note
+        double sigmaXStopped @unit(m) = default(0.5m);
+        double sigmaVStopped @unit(mps) = default(0.05mps);
+        double deviationFraction = default(0.0);   // send when the receiver's prediction is off by this fraction of the tolerance; 0 turns it off
+        double maxPeriod @unit(s) = default(4.5s); // the period of an object never exceeds this: the receivers forget an object after their hold (5 s)
+        bool emptyCpm = default(false);            // send a CPM at every generation step even when nothing is due
 }
 D1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.h" <<'D1_FILE_EOF' || return 1
 /*
- * AocCpService: CpService with a controlled loss of received CPMs (task C1 of the AoC plan).
- * Licensed under GPLv2 like Artery.
+ * AocCpService: CpService with the AoC generation rule (task E1 of the AoC plan) and a controlled loss of
+ * received CPMs (task C1). Licensed under GPLv2 like Artery.
  */
 #ifndef AOC_CP_SERVICE_H_
 #define AOC_CP_SERVICE_H_
 
 #include "artery/envmod/service/CpService.h"
+
+#include <cmath>
+#include <map>
+#include <string>
+#include <unordered_map>
 
 namespace artery
 {
@@ -801,7 +838,70 @@ public:
     void finish() override;
     void indicate(const vanetza::btp::DataIndication&, std::unique_ptr<vanetza::UpPacket>) override;
 
+    // the reliability curve of the theory note: alpha(age) = 1 - exp(-eps^2 / (2 sigma^2(age))),
+    // sigma^2(age) = sx^2 + sv^2 age^2 + q age^3 / 3
+    struct Curve {
+        double q = 0.0;       // motion value, m^2/s^3
+        double sigmaX = 0.0;  // position error of the sender, m
+        double sigmaV = 0.0;  // speed error of the sender, m/s
+    };
+    static double alphaOfAge(const Curve&, double age, double eps);
+    // the age at which alpha falls to the target (0 when the target cannot be met even fresh)
+    static double ageLimit(const Curve&, double target, double eps);
+    // the sending period of the rule of the note: (age limit - delay) / n, never negative, at most maxPeriod
+    static double period(const Curve&, double target, double eps, double delay, int repeats, double maxPeriod = 1.0e9);
+
+    // what the rule remembers about an object (keyed by its CPM object id)
+    struct ObjectMemory {
+        bool haveSeen = false;
+        omnetpp::SimTime seen;        // the last generation step at which the object was in the snapshot
+        double x = 0.0, y = 0.0;      // its absolute position then, m
+        double vx = 0.0, vy = 0.0;    // its velocity from the last two positions, m/s
+        bool haveVelocity = false;
+        omnetpp::SimTime included;    // the last inclusion in a CPM
+        double xi = 0.0, yi = 0.0;    // the position and the velocity sent then
+        double vxi = 0.0, vyi = 0.0;
+        bool haveIncluded = false;
+    };
+
+protected:
+    void checkTriggeringConditions(const omnetpp::SimTime& T_now) override;
+    void sendCpm(const omnetpp::SimTime& T_now) override;
+    bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now) override;
+
 private:
+    Curve curveOf(const PerceivedObjectSnapshot&) const;
+    static std::string className(int stationType);
+    void parseQByClass(const std::string&);
+
+    // the AoC rule
+    bool mAocRule = false;
+    bool mEtsiAbsolute = false;   // the rules of ETSI with the position change taken on the absolute position
+    double mTargetAlpha = 0.9;
+    double mTolerance = 1.5;      // eps, m
+    double mDelayEstimate = 0.1;  // d, s: the delay the sender assumes between its measurement and the reception
+    int mRepeats = 1;             // n of the rule
+    double mSigmaX = 0.3;
+    double mSigmaV = 0.5;
+    std::map<std::string, double> mQByClass;  // class name -> q; "default" for the classes not named
+    double mStoppedSpeed = 0.5;   // below this speed the object is treated as stopped (m/s); 0 turns it off
+    double mQStopped = 0.001;
+    double mSigmaXStopped = 0.5;
+    double mSigmaVStopped = 0.05;
+    double mDeviationFraction = 0.0;  // send when the receiver's prediction is off by this fraction of eps; 0 turns it off
+    double mMaxPeriod = 4.5;          // the period never exceeds this (the receivers forget after their hold)
+    bool mEmptyCpm = false;           // send a CPM at every generation step even without an object due
+    omnetpp::SimTime mGenStep;        // the generation interval in force at the current step
+    std::unordered_map<int, ObjectMemory> mMemory;
+
+    // counters, recorded as scalars
+    unsigned long mIncludedNew = 0;
+    unsigned long mIncludedAge = 0;
+    unsigned long mIncludedDeviation = 0;
+    unsigned long mCpmSkipped = 0;
+    unsigned long mCpmSent = 0;
+
+    // the controlled loss of C1
     double mDropProbability = 0.0;
     unsigned long mDropped = 0;
     unsigned long mPassed = 0;
@@ -813,19 +913,50 @@ private:
 D1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'D1_FILE_EOF' || return 1
 /*
- * AocCpService: CpService with a controlled loss of received CPMs (task C1 of the AoC plan).
- * Licensed under GPLv2 like Artery.
+ * AocCpService: CpService with the AoC generation rule (task E1 of the AoC plan) and a controlled loss of
+ * received CPMs (task C1). Licensed under GPLv2 like Artery.
  *
- * The loss is drawn per received CPM, independently, with the random number generator of the
- * module: the same seed set gives the same drops. A dropped CPM never reaches the service, so the
+ * The AoC generation rule (generationRule = "aoc"). The receiver of a report predicts the object forward
+ * from the report; the reliability of that prediction is alpha(age) of the theory note, with the motion
+ * value q of the object's class and the position and speed errors of the sender. The rule of the note
+ * (Step 4, eq. "rule") sends each object with the period T = (age limit - delay) / n, where the age limit
+ * is the age at which alpha falls to the target: the reliability at the receivers then stays above the
+ * target unless n reports in a row are lost. Here the rule is applied at every generation step of the
+ * service (every minInterval, or the DCC interval): an object is included in the CPM of this step when its
+ * report would be older than T at the next step. A newly seen object is included at once. A stopped object
+ * (speed below stoppedSpeed) takes the curve of a parked vehicle. The period never exceeds maxPeriod: a receiver
+ * forgets an object after its memory hold (5 s in the evaluation of the plan), whatever the curve says. With
+ * deviationFraction > 0 the sender also
+ * includes an object when the receiver's prediction (the last sent position moved at the last sent
+ * velocity) is off by that fraction of the tolerance: what the sender knows and the age alone does not say.
+ * A CPM is sent only when an object is due or the sensor information is due, and at least every
+ * maxInterval (with emptyCpm = true, at every generation step, like CpService).
+ *
+ * With generationRule = "etsi" the service behaves exactly like CpService (the rules of TS 103 324). With
+ * "etsi_abs" it applies the same rules, except that the position change of an object (rule 2b, 4 m) is taken on its
+ * absolute position: CpService takes it on the position relative to the sender, so a sender that moves sends every
+ * stopped object it sees at every step. The control grid compares the AoC rule with both.
+ *
+ * The loss (dropProbability) is drawn per received CPM, independently, with the random number generator of
+ * the module: the same seed set gives the same drops. A dropped CPM never reaches the service, so the
  * receiver behaves exactly as if the radio had lost it. The signal CpmDropped tells the logger.
  */
 #include "AocCpService.h"
 
 #include "artery/application/Asn1PacketVisitor.h"
+#include "artery/application/Timer.h"
 #include "artery/envmod/service/CpObject.h"
 
+#include <boost/units/cmath.hpp>
 #include <omnetpp/cexception.h>
+#include <vanetza/btp/ports.hpp>
+#include <vanetza/dcc/transmission.hpp>
+#include <vanetza/dcc/transmit_rate_control.hpp>
+#include <vanetza/geonet/station_type.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <sstream>
 
 using namespace omnetpp;
 
@@ -835,6 +966,113 @@ namespace artery
 Define_Module(AocCpService)
 
 static const simsignal_t scSignalCpmDropped = cComponent::registerSignal("CpmDropped");
+static const simsignal_t scSignalAocCpmSent = cComponent::registerSignal("CpmSent");
+
+double AocCpService::alphaOfAge(const Curve& c, double age, double eps)
+{
+    const double variance = c.sigmaX * c.sigmaX + c.sigmaV * c.sigmaV * age * age + c.q * age * age * age / 3.0;
+    if (variance <= 0.0) {
+        return 1.0;
+    }
+    return 1.0 - std::exp(-eps * eps / (2.0 * variance));
+}
+
+double AocCpService::ageLimit(const Curve& c, double target, double eps)
+{
+    // alpha(age) decreases with the age: bisection on alpha(age) = target
+    if (alphaOfAge(c, 0.0, eps) <= target) {
+        return 0.0;
+    }
+    double lo = 0.0, hi = 1.0;
+    while (alphaOfAge(c, hi, eps) > target) {
+        hi *= 2.0;
+        if (hi > 1.0e6) {
+            return hi;  // the curve never reaches the target (no motion at all)
+        }
+    }
+    for (int i = 0; i < 60; ++i) {
+        const double mid = 0.5 * (lo + hi);
+        if (alphaOfAge(c, mid, eps) > target) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return 0.5 * (lo + hi);
+}
+
+double AocCpService::period(const Curve& c, double target, double eps, double delay, int repeats, double maxPeriod)
+{
+    const double limit = ageLimit(c, target, eps);
+    return std::min(maxPeriod, std::max(0.0, limit - delay) / std::max(1, repeats));
+}
+
+std::string AocCpService::className(int stationType)
+{
+    // the names of the station types of ETSI, as the exporter of the package writes them
+    switch (stationType) {
+        case 1: return "pedestrian";
+        case 2: return "cyclist";
+        case 3: return "moped";
+        case 4: return "motorcycle";
+        case 5: return "passenger_car";
+        case 6: return "bus";
+        case 7: return "light_truck";
+        case 8: return "heavy_truck";
+        case 9: return "trailer";
+        case 10: return "special_vehicle";
+        case 11: return "tram";
+        case 15: return "rsu";
+        default: return "unknown";
+    }
+}
+
+void AocCpService::parseQByClass(const std::string& text)
+{
+    // "passenger_car=0.27,heavy_truck=0.118,pedestrian=0.025,default=0.27"
+    mQByClass.clear();
+    std::istringstream in(text);
+    std::string item;
+    while (std::getline(in, item, ',')) {
+        const auto eq = item.find('=');
+        if (eq == std::string::npos) {
+            throw cRuntimeError("AocCpService: qByClass item '%s' is not class=value", item.c_str());
+        }
+        std::string name = item.substr(0, eq);
+        name.erase(0, name.find_first_not_of(" \t"));
+        name.erase(name.find_last_not_of(" \t") + 1);
+        double value = 0.0;
+        try {
+            value = std::stod(item.substr(eq + 1));
+        } catch (const std::exception&) {
+            throw cRuntimeError("AocCpService: qByClass value of '%s' is not a number", name.c_str());
+        }
+        if (!(value > 0.0)) {
+            throw cRuntimeError("AocCpService: q of class '%s' must be positive, not %g", name.c_str(), value);
+        }
+        mQByClass[name] = value;
+    }
+    if (mQByClass.find("default") == mQByClass.end()) {
+        throw cRuntimeError("AocCpService: qByClass needs a 'default' entry");
+    }
+}
+
+AocCpService::Curve AocCpService::curveOf(const PerceivedObjectSnapshot& po) const
+{
+    Curve c;
+    const double speed = po.hasVelocity ? po.speedMps : 0.0;
+    if (mStoppedSpeed > 0.0 && po.hasVelocity && speed < mStoppedSpeed) {
+        c.q = mQStopped;
+        c.sigmaX = mSigmaXStopped;
+        c.sigmaV = mSigmaVStopped;
+        return c;
+    }
+    auto it = mQByClass.find(className(po.stationType));
+    c.q = (it != mQByClass.end()) ? it->second : mQByClass.at("default");
+    c.sigmaX = mSigmaX;
+    c.sigmaV = mSigmaV;
+    return c;
+}
 
 void AocCpService::initialize()
 {
@@ -843,12 +1081,67 @@ void AocCpService::initialize()
     if (!(mDropProbability >= 0.0 && mDropProbability < 1.0)) {
         throw cRuntimeError("AocCpService: dropProbability must be between 0 (included) and 1 (excluded), not %g", mDropProbability);
     }
+
+    const std::string rule = par("generationRule").stdstringValue();
+    mAocRule = false;
+    mEtsiAbsolute = false;
+    if (rule == "aoc") {
+        mAocRule = true;
+    } else if (rule == "etsi_abs") {
+        mEtsiAbsolute = true;
+    } else if (rule != "etsi") {
+        throw cRuntimeError("AocCpService: generationRule must be 'etsi', 'etsi_abs' or 'aoc', not '%s'", rule.c_str());
+    }
+    mTargetAlpha = par("targetAlpha");
+    mTolerance = par("tolerance");
+    mDelayEstimate = par("delayEstimate");
+    mRepeats = par("repeats");
+    mSigmaX = par("sigmaX");
+    mSigmaV = par("sigmaV");
+    mStoppedSpeed = par("stoppedSpeed");
+    mQStopped = par("qStopped");
+    mSigmaXStopped = par("sigmaXStopped");
+    mSigmaVStopped = par("sigmaVStopped");
+    mDeviationFraction = par("deviationFraction");
+    mMaxPeriod = par("maxPeriod");
+    mEmptyCpm = par("emptyCpm");
+    parseQByClass(par("qByClass").stdstringValue());
+    if (!(mTargetAlpha > 0.0 && mTargetAlpha < 1.0)) {
+        throw cRuntimeError("AocCpService: targetAlpha must be between 0 and 1 (excluded), not %g", mTargetAlpha);
+    }
+    if (!(mTolerance > 0.0) || mDelayEstimate < 0.0 || mRepeats < 1 || mSigmaX < 0.0 || mSigmaV < 0.0 || mStoppedSpeed < 0.0 ||
+        (mStoppedSpeed > 0.0 && !(mQStopped > 0.0)) || mDeviationFraction < 0.0 || !(mMaxPeriod > 0.0)) {
+        throw cRuntimeError("AocCpService: tolerance, qStopped and maxPeriod must be positive, delayEstimate, sigmaX, sigmaV, stoppedSpeed and "
+                            "deviationFraction not negative, repeats at least 1");
+    }
+    mGenStep = mGenCpmMin;
+
+    if (mAocRule) {
+        // the periods of the rule for the classes named, for the log of the run
+        for (const auto& entry : mQByClass) {
+            Curve c{entry.second, mSigmaX, mSigmaV};
+            EV_INFO << "AocCpService: class " << entry.first << " q " << entry.second << " age limit " << ageLimit(c, mTargetAlpha, mTolerance)
+                    << " s, period " << period(c, mTargetAlpha, mTolerance, mDelayEstimate, mRepeats, mMaxPeriod) << " s\n";
+        }
+        if (mStoppedSpeed > 0.0) {
+            Curve c{mQStopped, mSigmaXStopped, mSigmaVStopped};
+            EV_INFO << "AocCpService: stopped object: age limit " << ageLimit(c, mTargetAlpha, mTolerance) << " s, period "
+                    << period(c, mTargetAlpha, mTolerance, mDelayEstimate, mRepeats, mMaxPeriod) << " s\n";
+        }
+    }
 }
 
 void AocCpService::finish()
 {
     recordScalar("aocCpmDropped", mDropped);
     recordScalar("aocCpmPassed", mPassed);
+    if (mAocRule || mEtsiAbsolute) {
+        recordScalar("aocCpmSent", mCpmSent);
+        recordScalar("aocCpmSkipped", mCpmSkipped);
+        recordScalar("aocIncludedNew", mIncludedNew);
+        recordScalar("aocIncludedAge", mIncludedAge);
+        recordScalar("aocIncludedDeviation", mIncludedDeviation);
+    }
     CpService::finish();
 }
 
@@ -869,7 +1162,289 @@ void AocCpService::indicate(const vanetza::btp::DataIndication& ind, std::unique
     CpService::indicate(ind, std::move(packet));
 }
 
+void AocCpService::checkTriggeringConditions(const SimTime& T_now)
+{
+    if (!mAocRule && !mEtsiAbsolute) {
+        CpService::checkTriggeringConditions(T_now);
+        return;
+    }
+    // the same gate as CpService: a generation step every minInterval, or every DCC interval
+    mGenStep = mDccRestriction ? genCpmDcc() : mGenCpmMin;
+    if (T_now - mLastCpmTimestamp >= mGenStep) {
+        sendCpm(T_now);
+    }
+}
+
+void AocCpService::sendCpm(const SimTime& T_now)
+{
+    if (!mAocRule && !mEtsiAbsolute) {
+        CpService::sendCpm(T_now);
+        return;
+    }
+
+    // the same snapshots as CpService
+    captureVdpSnapshot();
+    const auto lemSensorsSnapshot = mLocalEnvironmentModel->getSensors();
+    const auto lemObjectsSnapshot = mLocalEnvironmentModel->allObjects();
+    const auto objectVdpSnapshots = captureObjectVdpSnapshot(lemObjectsSnapshot);
+    const auto referenceTime = countTaiMilliseconds(mTimer->getTimeFor(mVdpSnapshot.updated));
+
+    const uint32_t stationId = mVdpSnapshot.stationId;
+    if (!mHaveStationId) {
+        mHaveStationId = true;
+        mLastStationId = stationId;
+    } else if (stationId != mLastStationId) {
+        handlePseudonymChange();
+        mLastStationId = stationId;
+        mMemory.clear();
+    }
+
+    captureSensorSnapshot(T_now, lemSensorsSnapshot);
+    capturePerceivedObjectSnapshot(T_now, referenceTime, lemObjectsSnapshot, objectVdpSnapshots);
+
+    // what is due at this step: the objects of the rule, the sensor information, the CPM of maxInterval
+    const bool objectsDue = checkPerceivedObjectTrigger(T_now);
+    const bool sensorsDue = checkSensorInformationTrigger(T_now);
+    const bool periodicDue = (T_now - mLastCpmTimestamp >= mGenCpmMax);
+    if (!objectsDue && !sensorsDue && !periodicDue && !mEmptyCpm && !mEtsiAbsolute) {      // the rules of ETSI send a CPM at every step
+        ++mCpmSkipped;
+        return;
+    }
+
+    auto cpm = createCollectivePerceptionMessage(mVdpSnapshot, referenceTime);
+    if (mVdpSnapshot.stationType == static_cast<int>(vanetza::geonet::StationType::RSU)) {
+        addOriginatingRsuContainer(cpm);
+    } else {
+        addOriginatingVehicleContainer(cpm, mVdpSnapshot);
+    }
+    if (sensorsDue) {
+        addSensorInformationContainer(cpm, mSensorSnapshot);
+        mLastSensorInformationTimestamp = T_now;
+    }
+    if (checkPerceptionRegionTrigger()) {
+        addPerceptionRegionContainer(cpm);
+    }
+    if (objectsDue) {
+        addPerceivedObjectContainer(cpm, mPerceivedObjectSnapshot, mSelectedCpmObjects, mLastCpmTimestamp);
+    }
+
+    std::string error;
+    if (!cpm.validate(error)) {
+        throw cRuntimeError("Invalid CPM: %s", error.c_str());
+    }
+
+    mLastCpmTimestamp = T_now;
+    ++mCpmSent;
+
+    using namespace vanetza;
+    btp::DataRequestB request;
+    request.destination_port = btp::ports::CPM;
+    request.gn.its_aid = aid::CP;
+    request.gn.transport_type = geonet::TransportType::SHB;
+    request.gn.maximum_lifetime = geonet::Lifetime{geonet::Lifetime::Base::One_Second, 1};
+    request.gn.traffic_class.tc_id(static_cast<unsigned>(dcc::Profile::DP2));
+    request.gn.communication_profile = geonet::CommunicationProfile::ITS_G5;
+
+    CpObject obj(std::move(cpm));
+    emit(scSignalAocCpmSent, &obj);
+
+    using CpmByteBuffer = convertible::byte_buffer_impl<Cpm>;
+    std::unique_ptr<geonet::DownPacket> payload{new geonet::DownPacket()};
+    std::unique_ptr<convertible::byte_buffer> buffer{new CpmByteBuffer(obj.shared_ptr())};
+    payload->layer(OsiLayer::Application) = std::move(buffer);
+    this->request(request, std::move(payload));
+}
+
+bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
+{
+    if (!mAocRule && !mEtsiAbsolute) {
+        return CpService::checkPerceivedObjectTrigger(T_now);
+    }
+    if (mPerceivedObjectSnapshot.empty()) {
+        return false;
+    }
+
+    // the rules of ETSI with absolute positions: all type A objects go in when one is new or one is older than maxInterval / 2
+    bool includeAllTypeA = false;
+    if (mEtsiAbsolute) {
+        for (const auto idx : mSelectedCpmObjects) {
+            const auto& po = mPerceivedObjectSnapshot[idx];
+            if (po.type != PerceivedObjectType::TypeA) {
+                continue;
+            }
+            auto it = mPerceivedObjectHistories.find(static_cast<int>(po.cpsId));
+            if (po.objectAgeMs < (T_now - mLastCpmTimestamp).dbl() * 1000 || it == mPerceivedObjectHistories.end() ||
+                T_now - it->second.inclusion >= mGenCpmMax / 2) {
+                includeAllTypeA = true;
+                break;
+            }
+        }
+    }
+
+    const double egoX = mVdpSnapshot.position.x.value();
+    const double egoY = mVdpSnapshot.position.y.value();
+    const double step = mGenStep.dbl();
+    const double tiny = 1.0e-6;
+
+    std::vector<std::size_t> selected;
+    selected.reserve(mSelectedCpmObjects.size());
+
+    for (const auto idx : mSelectedCpmObjects) {
+        auto& po = mPerceivedObjectSnapshot[idx];
+        po.haveHistory = false;
+        po.distanceDiffM = 0.0;
+        po.speedDiffMps = 0.0;
+        po.orientationDiffDeg = 0.0;
+        po.sinceLastInclusionSeconds = 0.0;
+
+        if (po.objectPerceptionQuality <= mObjectPerceptionQualityThreshold) {
+            continue;
+        }
+        if (po.type == PerceivedObjectType::Unknown) {
+            EV_WARN << "perceived object type is unknown, skipping object";
+            continue;
+        }
+
+        // the object now, in absolute coordinates, and its velocity from the last two steps
+        const int key = static_cast<int>(po.cpsId);
+        const double x = egoX + po.xCm / 100.0;
+        const double y = egoY + po.yCm / 100.0;
+        ObjectMemory& mem = mMemory[key];
+        if (mem.haveSeen && T_now > mem.seen) {
+            const double dt = (T_now - mem.seen).dbl();
+            mem.vx = (x - mem.x) / dt;
+            mem.vy = (y - mem.y) / dt;
+            mem.haveVelocity = true;
+        }
+        mem.haveSeen = true;
+        mem.seen = T_now;
+        mem.x = x;
+        mem.y = y;
+
+        // the cached values of CpService, for the utility function and the sort
+        auto histIt = mPerceivedObjectHistories.find(key);
+        if (histIt != mPerceivedObjectHistories.end()) {
+            const PerceivedObjectHistory& history = histIt->second;
+            po.haveHistory = true;
+            po.sinceLastInclusionSeconds = (T_now - history.inclusion).dbl();
+            Position objectPos(static_cast<double>(po.xCm), static_cast<double>(po.yCm));
+            po.distanceDiffM = distance(objectPos, history.position).value() / 100.0;
+            po.speedDiffMps = std::abs((po.hasVelocity ? po.speedMps : 0.0) - history.speed);
+            po.orientationDiffDeg = std::abs((po.hasVelocity ? po.headingDeg : 0.0) - history.orientation.degree());
+        }
+
+        bool include = false;
+        if (mEtsiAbsolute) {
+            // the rules of TS 103 324 as CpService applies them, with the position change of rule 2b taken on the
+            // absolute position of the object (CpService takes it on the position relative to the sender, which moves)
+            if (po.type == PerceivedObjectType::TypeA) {
+                include = includeAllTypeA;
+            } else if (!mem.haveIncluded || !po.haveHistory) {
+                include = true;
+                ++mIncludedNew;
+            } else {
+                const double moved = std::hypot(x - mem.xi, y - mem.yi);
+                include = (po.objectAgeMs < (T_now - mLastCpmTimestamp).dbl() * 1000) || moved > mMinPositionChangeThreshold.value() ||
+                          po.speedDiffMps > mMinGroundSpeedChangeThreshold.value() ||
+                          po.orientationDiffDeg >= mMinGroundVelocityOrientationChangeThreshold.value() ||
+                          po.sinceLastInclusionSeconds >= mGenCpmMax.dbl();
+                if (include) {
+                    ++mIncludedAge;
+                }
+            }
+        } else if (!mem.haveIncluded || !po.haveHistory) {
+            // a new object: included at once, as in the rules of ETSI
+            include = true;
+            ++mIncludedNew;
+        } else {
+            // the rule of the note: the report must not be older than the period at the next step
+            const Curve curve = curveOf(po);
+            const double T = period(curve, mTargetAlpha, mTolerance, mDelayEstimate, mRepeats, mMaxPeriod);
+            const double lag = std::max(0L, po.measurementDeltaTimeMs) / 1000.0;  // the report is measured before the step
+            const double ageAtNextStep = (T_now - mem.included).dbl() + lag + step;
+            if (ageAtNextStep > T + tiny) {
+                include = true;
+                ++mIncludedAge;
+            } else if (mDeviationFraction > 0.0 && mem.haveVelocity) {
+                // what the sender knows: the receiver's prediction against the object now
+                const double dt = (T_now - mem.included).dbl();
+                const double dx = x - (mem.xi + mem.vxi * dt);
+                const double dy = y - (mem.yi + mem.vyi * dt);
+                if (std::sqrt(dx * dx + dy * dy) >= mDeviationFraction * mTolerance) {
+                    include = true;
+                    ++mIncludedDeviation;
+                }
+            }
+        }
+        if (include) {
+            selected.push_back(idx);
+            mem.included = T_now;
+            mem.xi = x;
+            mem.yi = y;
+            mem.vxi = mem.haveVelocity ? mem.vx : 0.0;
+            mem.vyi = mem.haveVelocity ? mem.vy : 0.0;
+            mem.haveIncluded = true;
+        }
+    }
+
+    // forget the objects not seen for a while (the CPM object ids are reused after a retention period)
+    if (mMemory.size() > 4 * mPerceivedObjectSnapshot.size() + 64) {
+        for (auto it = mMemory.begin(); it != mMemory.end();) {
+            if (T_now - it->second.seen > mGenCpmMax * 10) {
+                it = mMemory.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    mSelectedCpmObjects = std::move(selected);
+    if (mSelectedCpmObjects.empty()) {
+        return false;
+    }
+
+    // the history and the utility of CpService for the included objects, then its sort
+    for (const auto idx : mSelectedCpmObjects) {
+        auto& po = mPerceivedObjectSnapshot[idx];
+        po.utility = calculateUtilityFunction(po, po.distanceDiffM, po.speedDiffMps, po.orientationDiffDeg, po.sinceLastInclusionSeconds);
+        mPerceivedObjectHistories[static_cast<int>(po.cpsId)] = PerceivedObjectHistory{
+            T_now, Position(static_cast<double>(po.xCm), static_cast<double>(po.yCm)), (po.hasVelocity ? po.speedMps : 0.0),
+            Angle((po.hasVelocity ? po.headingDeg : 0.0) * M_PI / 180.0)};
+    }
+    sortPerceivedObjects();
+    return true;
+}
+
 }  // namespace artery
+D1_FILE_EOF
+    put_file "$EXT_DIR/cpservice-protected.patch" <<'D1_FILE_EOF' || return 1
+diff --git a/src/artery/envmod/service/CpService.h b/src/artery/envmod/service/CpService.h
+index b0c695f..25c5899 100644
+--- a/src/artery/envmod/service/CpService.h
++++ b/src/artery/envmod/service/CpService.h
+@@ -105,9 +105,10 @@ public:
+     void indicate(const vanetza::btp::DataIndication&, std::unique_ptr<vanetza::UpPacket>) override;
+     void trigger() override;
+ 
+-private:
+-    void checkTriggeringConditions(const omnetpp::SimTime& T_now);
+-    void sendCpm(const omnetpp::SimTime& T_now);
++protected:
++    // protected and virtual for the AoC generation rule (artery-ext/aoc/AocCpService of the AoC plan, task E1)
++    virtual void checkTriggeringConditions(const omnetpp::SimTime& T_now);
++    virtual void sendCpm(const omnetpp::SimTime& T_now);
+     void captureVdpSnapshot();
+     void captureSensorSnapshot(const omnetpp::SimTime& T_now, const std::vector<Sensor*>& sensors);
+     ObjectVdpSnapshotMap captureObjectVdpSnapshot(const LocalEnvironmentModel::TrackedObjects& objects) const;
+@@ -116,7 +117,7 @@ private:
+         const ObjectVdpSnapshotMap& objectVdpSnapshots);
+     bool checkSensorInformationTrigger(const omnetpp::SimTime& T_now);
+     bool checkPerceptionRegionTrigger();
+-    bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now);
++    virtual bool checkPerceivedObjectTrigger(const omnetpp::SimTime& T_now);
+     double calculateUtilityFunction(
+         const PerceivedObjectSnapshot& po, double distanceDiff, double speedDiff, double orientationDiff, double lastInclusionSeconds);
+     void sortPerceivedObjects();
 D1_FILE_EOF
 }
 
@@ -894,8 +1469,9 @@ write_scenario() {
 # 330 s per run (three light cycles of 90 s after the warm-up of 60 s, one event per cycle); the analysis leaves out the first 60 s.
 #
 # Configurations:
-#   grid        3 x 4 x 3 x 12 = 432 runs of 330 s
-#   grid_quick  one run of 60 s (low, 100, etsi), to check the chain
+#   grid           3 x 4 x 3 x 12 = 432 runs of 330 s
+#   grid_quick     one run of 60 s (low, 100, etsi), to check the chain
+#   control_quick  three runs of 60 s (low, 100): the generation rules etsi, etsi_abs and aoc of AocCpService (task E1)
 #
 # Run with the AoC library loaded (d1_grid.sh does it, one process per run number):
 #   python3 tools/run_artery.py -l build/run-artery.ini -s scenarios/aoc-grid -- -u Cmdenv -c grid -r 0
@@ -981,6 +1557,20 @@ sim-time-limit = 60s
 *.traci.launcher.sumocfg = "grid_${density=low}.sumo.cfg"
 *.node[*].middleware.services = xmldoc("services-grid-${pen=100}.xml")
 *.aocLogger.label = "${msg=etsi}"
+*.node[*].middleware.CP.objectInclusionConfig = 1
+*.node[*].middleware.CP.withDccRestriction = true
+*.node[*].middleware.CP.minInterval = 0.1s
+*.node[*].middleware.CP.maxInterval = 1s
+
+[Config control_quick]
+description = "the generation rules etsi, etsi_abs and aoc: one short run each (low, 100), to check the chain of E1"
+# run 0: the rules of ETSI as CpService applies them; run 1: the same with the position change on the absolute position;
+# run 2: the AoC rule with its default parameters (AocCpService.ned: target 0.9, the fitted q of D3, n = 1)
+sim-time-limit = 60s
+*.traci.launcher.sumocfg = "grid_${density=low}.sumo.cfg"
+*.node[*].middleware.services = xmldoc("services-control-${pen=100}.xml")
+*.aocLogger.label = "${rule=etsi,etsi_abs,aoc}"
+*.node[*].middleware.CP.generationRule = "${rule}"
 *.node[*].middleware.CP.objectInclusionConfig = 1
 *.node[*].middleware.CP.withDccRestriction = true
 *.node[*].middleware.CP.minInterval = 0.1s
@@ -1358,6 +1948,75 @@ D1_FILE_EOF
 		<listener port="2001" />
 	</service>
 	<service type="artery.envmod.service.CpService" name="CP">
+		<listener port="2009" />
+	</service>
+</services>
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-10.xml" <<'D1_FILE_EOF' || return 1
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2), penetration 10%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
+     0.10, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
+     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
+     take part in the draw. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+		<filters operator="or">
+			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
+			<penetration rate="0.10" />
+		</filters>
+	</service>
+</services>
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-25.xml" <<'D1_FILE_EOF' || return 1
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2), penetration 25%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
+     0.25, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
+     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
+     take part in the draw. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+		<filters operator="or">
+			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
+			<penetration rate="0.25" />
+		</filters>
+	</service>
+</services>
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-50.xml" <<'D1_FILE_EOF' || return 1
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2), penetration 50%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
+     0.50, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
+     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
+     take part in the draw. -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+		<filters operator="or">
+			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
+			<penetration rate="0.50" />
+		</filters>
+	</service>
+</services>
+D1_FILE_EOF
+    put_file "$GRID_DIR/services-control-100.xml" <<'D1_FILE_EOF' || return 1
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2), penetration 100%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA and CP, the truck of the events included (no filter). -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+	</service>
+	<service type="AocCpService" name="CP">
 		<listener port="2009" />
 	</service>
 </services>
@@ -1919,6 +2578,340 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 D1_FILE_EOF
+    put_file "$RULECHECK" <<'D1_FILE_EOF' || return 1
+"""The check of the AoC generation rule in an exported run (task E1): what the senders did against what the rule
+says, and what the receivers got out of it. Standalone: numpy, pandas and pyarrow only, so that the workstation
+scripts can embed it.
+
+    aoc-rulecheck RUN_DIR [--against OTHER_RUN_DIR] [--target 0.9] [--delay 0.1] [--repeats 1] [--q class=value,...]
+                  [--warmup 10] [--range 200] [--hold 5] [--out DIR]
+
+Three tables, from the raw logs of the run (``parquet/cpm_tx``, ``cpm_obj``, ``cpm_rx``, ``truth``):
+
+  senders      per sender: CPMs per second, bytes per second, bytes and objects per CPM, the share of CPMs with an
+               object container
+  inclusions   per class and motion state (moving, stopped): the period the rule gives, the intervals between two
+               inclusions of the same object by the same sender (median, p10, p90), the share of intervals at the
+               period (within one generation step), shorter (the object changed state, or was sent for a
+               deviation) and longer (the object was out of view)
+  receivers    per receiver: the share of the time an object within range is known with a reliability at or above
+               the target (``time_above_target``: the reliability alpha(age) of the latest report received, with
+               the curve of the rule, 0 when no report was received in the hold), the share of the time it is
+               known at all (``known``), the mean channel busy ratio seen by the receiver. The objects counted are
+               the ones without V2X (not in ``nodes``: the pedestrians, and the cars without a station), the ones
+               collective perception is for; ``--objects all`` counts every object but the receiver (the stations
+               are then known through their CAMs, which these logs do not hold)
+
+With ``--against`` the same tables of a second run (the rules of ETSI, say) are printed next to the first and the
+summary gives the ratios: the channel load and the time above target of the first run against the second (H4).
+The rule's parameters are those of ``AocCpService.ned`` by default (the fitted q of D3); give the ones of the run.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+
+import numpy as np
+import pandas as pd
+
+Q_DEFAULT = "passenger_car=0.269,heavy_truck=0.118,pedestrian=0.0252,cyclist=0.98,default=0.269"
+H4_TOLERANCE = 0.01                    # the time above the target may be this much lower for the same verdict (one point)
+MOVING = ("moving", 0.3, 0.5)          # the position and speed errors of the sender (NED: sigmaX, sigmaV)
+STOPPED = ("stopped", 0.5, 0.05)       # the parked vehicle of the note (sigmaXStopped, sigmaVStopped)
+
+
+def alpha_of_age(age, q, sigma_x, sigma_v, eps=1.5):
+    """The reliability curve of the note: 1 - exp(-eps^2 / (2 (sx^2 + sv^2 age^2 + q age^3 / 3)))."""
+    age = np.asarray(age, dtype=float)
+    variance = sigma_x ** 2 + sigma_v ** 2 * age ** 2 + q * age ** 3 / 3.0
+    return 1.0 - np.exp(-eps ** 2 / (2.0 * variance))
+
+
+def age_limit(target, q, sigma_x, sigma_v, eps=1.5):
+    """The age at which the curve falls to the target (0 when the target is not met even fresh), by bisection like the service."""
+    if alpha_of_age(0.0, q, sigma_x, sigma_v, eps) <= target:
+        return 0.0
+    lo, hi = 0.0, 1.0
+    while alpha_of_age(hi, q, sigma_x, sigma_v, eps) > target:
+        hi *= 2.0
+        if hi > 1e6:
+            return hi
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if alpha_of_age(mid, q, sigma_x, sigma_v, eps) > target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def period(target, q, sigma_x, sigma_v, eps=1.5, delay=0.1, repeats=1, max_period=1e9):
+    """The sending period of the rule: (age limit - delay) / n, never negative, at most max_period."""
+    return min(max_period, max(0.0, age_limit(target, q, sigma_x, sigma_v, eps) - delay) / max(1, repeats))
+
+
+def sent_at(period_s, step=0.1):
+    """The interval the service produces for a period: the last generation step at or before the period."""
+    return math.floor(period_s / step + 1e-6) * step
+
+
+def parse_q(text):
+    out = {}
+    for item in text.split(","):
+        name, _, value = item.partition("=")
+        out[name.strip()] = float(value)
+    if "default" not in out:
+        raise SystemExit("--q needs a default entry")
+    return out
+
+
+class Rule:
+    """The parameters of the rule, as the service holds them."""
+
+    def __init__(self, target=0.9, eps=1.5, delay=0.1, repeats=1, q=None, sigma_x=0.3, sigma_v=0.5, stopped_speed=0.5, q_stopped=0.001,
+                 sigma_x_stopped=0.5, sigma_v_stopped=0.05, step=0.1, max_period=4.5):
+        self.target, self.eps, self.delay, self.repeats, self.step, self.max_period = target, eps, delay, repeats, step, max_period
+        self.q = q or parse_q(Q_DEFAULT)
+        self.moving = (sigma_x, sigma_v)
+        self.stopped_speed = stopped_speed
+        self.stopped = (q_stopped, sigma_x_stopped, sigma_v_stopped)
+
+    def curve(self, cls, speed):
+        """(q, sigma_x, sigma_v, state) of an object of a class at a speed."""
+        if self.stopped_speed > 0 and speed < self.stopped_speed:
+            return self.stopped + ("stopped",)
+        return (self.q.get(cls, self.q["default"]),) + self.moving + ("moving",)
+
+    def period_of(self, cls, speed):
+        q, sx, sv, _ = self.curve(cls, speed)
+        return period(self.target, q, sx, sv, self.eps, self.delay, self.repeats, self.max_period)
+
+    def alpha(self, age, cls, speed):
+        q, sx, sv, _ = self.curve(cls, speed)
+        return alpha_of_age(age, q, sx, sv, self.eps)
+
+    def table(self):
+        rows = []
+        for cls, q in self.q.items():
+            rows.append(dict(cls=cls, state="moving", q=q, age_limit=round(age_limit(self.target, q, *self.moving, self.eps), 3),
+                             period=round(self.period_of(cls, self.stopped_speed + 1), 3), sent_at=sent_at(self.period_of(cls, self.stopped_speed + 1), self.step)))
+        if self.stopped_speed > 0:
+            q, sx, sv = self.stopped
+            rows.append(dict(cls="any", state="stopped", q=q, age_limit=round(age_limit(self.target, q, sx, sv, self.eps), 3),
+                             period=round(self.period_of("any", 0.0), 3), sent_at=sent_at(self.period_of("any", 0.0), self.step)))
+        return pd.DataFrame(rows)
+
+
+def read_run(folder):
+    p = os.path.join(folder, "parquet")
+    tables = {name: pd.read_parquet(os.path.join(p, name + ".parquet")) for name in ("cpm_tx", "cpm_obj", "cpm_rx", "truth")}
+    nodes_path = os.path.join(p, "nodes.parquet")
+    tables["nodes"] = pd.read_parquet(nodes_path) if os.path.isfile(nodes_path) else pd.DataFrame(columns=["node_id"])
+    info_path = os.path.join(p, "export_summary.json")
+    tables["info"] = json.load(open(info_path)) if os.path.isfile(info_path) else {}
+    return tables
+
+
+def senders_table(tx, warmup, t_end):
+    """Per sender: the CPM rate, the bytes and the objects."""
+    t = tx[tx["t_tx"] >= warmup]
+    seconds = max(t_end - warmup, 1e-9)
+    g = t.groupby("tx_id")
+    out = pd.DataFrame({"cpms": g.size(), "bytes": g["size_bytes"].sum(), "objects": g["n_objects"].sum(),
+                        "with_objects": g["n_objects"].apply(lambda s: float((s > 0).mean()))})
+    out["cpm_rate_hz"] = (out["cpms"] / seconds).round(3)
+    out["bytes_per_s"] = (out["bytes"] / seconds).round(1)
+    out["bytes_per_cpm"] = (out["bytes"] / out["cpms"]).round(1)
+    out["objects_per_cpm"] = (out["objects"] / out["cpms"]).round(2)
+    out["with_objects"] = out["with_objects"].round(3)
+    return out.reset_index().sort_values("tx_id").reset_index(drop=True)
+
+
+def inclusions_table(obj, rule, warmup):
+    """Per class and state: the intervals between two inclusions of the same object by the same sender."""
+    o = obj[(obj["t_tx"] >= warmup) & obj["gt_match_id"].notna()].copy()
+    o["speed"] = o["speed_cms"].fillna(0).astype(float) / 100.0
+    o = o.sort_values(["tx_id", "gt_match_id", "t_tx"])
+    o["next_t"] = o.groupby(["tx_id", "gt_match_id"])["t_tx"].shift(-1)
+    o["next_speed"] = o.groupby(["tx_id", "gt_match_id"])["speed"].shift(-1)
+    o = o[o["next_t"].notna()].copy()
+    if o.empty:
+        return pd.DataFrame(columns=["cls", "state", "intervals", "period", "sent_at", "median", "p10", "p90", "at_period", "shorter", "longer"])
+    o["interval"] = (o["next_t"] - o["t_tx"]).round(3)
+    curves = o.apply(lambda r: rule.curve(r["class"], r["speed"]), axis=1)
+    o["state"] = [c[3] for c in curves]
+    o["expected"] = [sent_at(rule.period_of(cls, speed), rule.step) for cls, speed in zip(o["class"], o["speed"])]
+    o["state_next"] = [rule.curve(cls, speed)[3] for cls, speed in zip(o["class"], o["next_speed"])]
+    tol = rule.step / 2 + 1e-6
+    rows = []
+    for (cls, state), part in o.groupby(["class", "state"], sort=True):
+        exp = float(part["expected"].iloc[0])
+        at = (part["interval"] - exp).abs() <= tol
+        shorter = part["interval"] < exp - tol
+        rows.append(dict(cls=cls, state=state, intervals=int(len(part)), period=round(rule.period_of(cls, 0.0 if state == "stopped" else rule.stopped_speed + 1), 3),
+                         sent_at=exp, median=round(float(part["interval"].median()), 3), p10=round(float(part["interval"].quantile(0.1)), 3),
+                         p90=round(float(part["interval"].quantile(0.9)), 3), at_period=round(float(at.mean()), 3), shorter=round(float(shorter.mean()), 3),
+                         shorter_state_change=round(float((shorter & (part["state_next"] != part["state"])).mean()), 3),
+                         longer=round(float((part["interval"] > exp + tol).mean()), 3)))
+    return pd.DataFrame(rows)
+
+
+def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, objects="unequipped"):
+    """Per receiver: the share of the time an object within range is known with alpha at or above the target."""
+    truth, rx, obj = tables["truth"], tables["cpm_rx"], tables["cpm_obj"]
+    stations = set(tables["nodes"]["node_id"].astype(str)) if objects == "unequipped" else set()
+    reports = rx.merge(obj[["station_id", "reference_time_ms", "gt_match_id", "t_meas", "speed_cms", "class"]], on=["station_id", "reference_time_ms"], how="inner")
+    reports = reports[reports["gt_match_id"].notna()]
+    ticks = np.round(np.arange(math.ceil(warmup * 10) / 10.0, t_end + 1e-9, 0.1), 1)
+    truth = truth.copy()
+    truth["t"] = truth["t"].round(1)
+    truth = truth[truth["t"].isin(set(ticks))]
+    X = truth.pivot_table(index="t", columns="obj_id", values="x").reindex(ticks)
+    Y = truth.pivot_table(index="t", columns="obj_id", values="y").reindex(ticks)
+    objects_list = [str(o) for o in X.columns]
+    Xv, Yv = X.to_numpy(dtype=float), Y.to_numpy(dtype=float)
+    cls_of = truth.drop_duplicates("obj_id").set_index("obj_id")["class"].to_dict()
+    cbr = rx[rx["t_rx"] >= warmup].groupby("rx_id")["cbr"].mean()
+    wanted = sorted(set(reports["rx_id"].unique()) | set(cbr.index)) if receivers is None else sorted(receivers)
+    moving_speed = rule.stopped_speed + 1.0
+    rows = []
+    for r in wanted:
+        if r not in objects_list:
+            continue
+        k = objects_list.index(r)
+        d = np.hypot(Xv - Xv[:, [k]], Yv - Yv[:, [k]])
+        in_range = np.isfinite(d) & (d <= range_m)
+        in_range[:, k] = False
+        for j, o in enumerate(objects_list):
+            if o in stations:
+                in_range[:, j] = False
+        pairs = int(in_range.sum())
+        mine = reports[reports["rx_id"] == r]
+        above = known = 0
+        for o, rep in mine.groupby("gt_match_id"):
+            if o not in objects_list:
+                continue
+            j = objects_list.index(o)
+            if not in_range[:, j].any():
+                continue
+            rep = rep.sort_values("t_rx")
+            t_rx = rep["t_rx"].to_numpy(dtype=float)
+            t_meas = np.maximum.accumulate(rep["t_meas"].to_numpy(dtype=float))     # the freshest report received so far
+            speed = rep["speed_cms"].fillna(0).to_numpy(dtype=float) / 100.0
+            idx = np.searchsorted(t_rx, ticks, side="right") - 1
+            have = idx >= 0
+            safe = np.clip(idx, 0, None)
+            age = np.where(have, ticks - t_meas[safe], np.inf)
+            fresh = have & (age <= hold)
+            age0 = np.where(fresh, age, 0.0)
+            alpha = rule.alpha(age0, cls_of.get(o, "unknown"), moving_speed)
+            if rule.stopped_speed > 0:                                              # a stopped report takes the parked curve
+                q, sx, sv = rule.stopped
+                alpha = np.where(speed[safe] < rule.stopped_speed, alpha_of_age(age0, q, sx, sv, rule.eps), alpha)
+            alpha = np.where(fresh, alpha, 0.0)
+            known += int((in_range[:, j] & fresh).sum())
+            above += int((in_range[:, j] & (alpha >= rule.target)).sum())
+        rows.append(dict(rx_id=r, pairs=pairs, known=round(known / pairs, 4) if pairs else np.nan, time_above_target=round(above / pairs, 4) if pairs else np.nan,
+                         cbr_mean=round(float(cbr.get(r, np.nan)), 4)))
+    return pd.DataFrame(rows, columns=["rx_id", "pairs", "known", "time_above_target", "cbr_mean"])
+
+
+def analyse(folder, rule, warmup, range_m, hold, receivers=None, objects="unequipped"):
+    tables = read_run(folder)
+    t_end = float(tables["info"].get("t_last_s") or tables["truth"]["t"].max())
+    out = dict(senders=senders_table(tables["cpm_tx"], warmup, t_end), inclusions=inclusions_table(tables["cpm_obj"], rule, warmup),
+               receivers=receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers, objects))
+    s, r = out["senders"], out["receivers"]
+    out["summary"] = dict(folder=folder, label=str(tables["info"].get("variables") or tables["info"].get("iteration_vars") or ""), seconds=round(t_end - warmup, 1),
+                          senders=int(len(s)), cpm_rate_hz=round(float(s["cpm_rate_hz"].mean()), 3) if len(s) else np.nan,
+                          bytes_per_s=round(float(s["bytes_per_s"].sum()), 1) if len(s) else np.nan,
+                          objects_per_cpm=round(float(s["objects"].sum() / max(s["cpms"].sum(), 1)), 2) if len(s) else np.nan,
+                          cbr_mean=round(float(r["cbr_mean"].mean()), 4) if len(r) else np.nan,
+                          time_above_target=round(float(r["time_above_target"].mean()), 4) if len(r) else np.nan,
+                          known=round(float(r["known"].mean()), 4) if len(r) else np.nan)
+    return out
+
+
+def format_report(result, against=None, rule=None):
+    lines = []
+    if rule is not None:
+        lines.append("the rule: target %.2f, tolerance %.2f m, delay %.2f s, n = %d, step %.1f s, period at most %.1f s" % (
+            rule.target, rule.eps, rule.delay, rule.repeats, rule.step, rule.max_period))
+        lines.append(rule.table().to_string(index=False))
+        lines.append("")
+    for name, res in (("run", result), ("against", against)):
+        if res is None:
+            continue
+        s = res["summary"]
+        lines.append("%s: %s (%s), %.0f s after the warm-up" % (name, s["folder"], s["label"], s["seconds"]))
+        lines.append("  senders %d, CPM rate %.3f Hz per sender, %.0f bytes/s in all, %.2f objects per CPM; CBR %.4f; time above target %.4f, known %.4f" % (
+            s["senders"], s["cpm_rate_hz"], s["bytes_per_s"], s["objects_per_cpm"], s["cbr_mean"], s["time_above_target"], s["known"]))
+        lines.append("  inclusions per class and state:")
+        lines.append("    " + res["inclusions"].to_string(index=False).replace("\n", "\n    "))
+    if against is not None:
+        a, b = result["summary"], against["summary"]
+        ratio = lambda k: (a[k] / b[k]) if (b[k] and np.isfinite(b[k]) and np.isfinite(a[k])) else np.nan
+        lines.append("")
+        lines.append("run against the other: bytes/s %.3f, CPM rate %.3f, CBR %.3f, time above target %.3f, known %.3f" % (
+            ratio("bytes_per_s"), ratio("cpm_rate_hz"), ratio("cbr_mean"), ratio("time_above_target"), ratio("known")))
+        less_load = a["bytes_per_s"] <= 0.8 * b["bytes_per_s"] and a["time_above_target"] >= b["time_above_target"] - H4_TOLERANCE
+        more_time = a["time_above_target"] > b["time_above_target"] + H4_TOLERANCE and a["bytes_per_s"] <= b["bytes_per_s"] * (1 + H4_TOLERANCE)
+        lines.append("H4 on this run: %s (the plan: the target reached with at least 20 %% less load, or more time above the target at equal load; "
+                     "within %.0f point(s) here)" % ("PASS" if (less_load or more_time) else "not met", 100 * H4_TOLERANCE))
+    return "\n".join(lines)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Check the AoC generation rule in an exported run (task E1).")
+    ap.add_argument("run", help="the exported run folder (with parquet/)")
+    ap.add_argument("--against", default=None, help="a second run to compare with (the rules of ETSI, say)")
+    ap.add_argument("--target", type=float, default=0.9)
+    ap.add_argument("--eps", type=float, default=1.5)
+    ap.add_argument("--delay", type=float, default=0.1)
+    ap.add_argument("--repeats", type=int, default=1)
+    ap.add_argument("--q", default=Q_DEFAULT, help="q per class, class=value,... with a default")
+    ap.add_argument("--sigma-x", type=float, default=0.3)
+    ap.add_argument("--sigma-v", type=float, default=0.5)
+    ap.add_argument("--stopped-speed", type=float, default=0.5, help="m/s; 0 turns the stopped state off")
+    ap.add_argument("--q-stopped", type=float, default=0.001)
+    ap.add_argument("--sigma-x-stopped", type=float, default=0.5)
+    ap.add_argument("--sigma-v-stopped", type=float, default=0.05)
+    ap.add_argument("--step", type=float, default=0.1, help="the generation step of the service (minInterval)")
+    ap.add_argument("--max-period", type=float, default=4.5, help="the period of the rule never exceeds this (maxPeriod of the service)")
+    ap.add_argument("--warmup", type=float, default=10.0)
+    ap.add_argument("--range", type=float, default=200.0, help="the range of the receiver metric, m")
+    ap.add_argument("--hold", type=float, default=5.0, help="a report older than this is forgotten by the receiver metric")
+    ap.add_argument("--objects", choices=["unequipped", "all"], default="unequipped", help="the objects of the receiver metric (default: the ones without V2X)")
+    ap.add_argument("--out", default=None, help="write the tables (CSV) and the summary (JSON) there")
+    args = ap.parse_args(argv)
+    rule = Rule(args.target, args.eps, args.delay, args.repeats, parse_q(args.q), args.sigma_x, args.sigma_v, args.stopped_speed, args.q_stopped,
+                args.sigma_x_stopped, args.sigma_v_stopped, args.step, args.max_period)
+    try:
+        result = analyse(args.run, rule, args.warmup, args.range, args.hold, objects=args.objects)
+        against = analyse(args.against, rule, args.warmup, args.range, args.hold, objects=args.objects) if args.against else None
+    except FileNotFoundError as exc:
+        print("ERROR: %s" % exc)
+        return 2
+    print(format_report(result, against, rule))
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        for name, res in (("run", result), ("against", against)):
+            if res is None:
+                continue
+            for table in ("senders", "inclusions", "receivers"):
+                res[table].to_csv(os.path.join(args.out, "%s_%s.csv" % (name, table)), index=False)
+        with open(os.path.join(args.out, "summary.json"), "w") as fh:
+            json.dump({"run": result["summary"], "against": against["summary"] if against else None}, fh, indent=1)
+        print("written: %s" % args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+D1_FILE_EOF
     put_file "$CHECKER" <<'D1_FILE_EOF' || return 1
 """The core grid of the plan (task D1, experiment E3): the cells, the run numbers, and the index of the exported runs.
 
@@ -2170,6 +3163,20 @@ patch_cmake() {
     CHANGED=1
 }
 
+# the AoC generation rule (task E1) overrides three methods of CpService: this patch makes them protected and virtual in
+# the Artery sources (src/artery/envmod/service/CpService.h). Applied once; a header that already has it is left alone.
+patch_cpservice() {
+    local patch="$EXT_DIR/cpservice-protected.patch" header="$ARTERY_DIR/src/artery/envmod/service/CpService.h"
+    [ -f "$header" ] || return 1
+    if grep -q 'virtual bool checkPerceivedObjectTrigger' "$header"; then return 0; fi
+    [ -f "$header.aoc-backup" ] || cp -p "$header" "$header.aoc-backup" || return 1
+    if [ -d "$ARTERY_DIR/.git" ] && git -C "$ARTERY_DIR" apply "$patch" >/dev/null 2>&1; then :;
+    elif ( cd "$ARTERY_DIR" && patch -p1 --forward --silent < "$patch" ) >/dev/null 2>&1; then :;
+    else return 1; fi
+    grep -q 'virtual bool checkPerceivedObjectTrigger' "$header" || return 1
+    CHANGED=1
+}
+
 # ----------------------------------------------------------------------------
 # 2. Report and end of the script
 # ----------------------------------------------------------------------------
@@ -2263,6 +3270,7 @@ cell_runs() {
 case "${1:-}" in
     "") RUN_LIST="$(seq -s ' ' 0 $((N_RUNS - 1)))" ;;
     --quick) CONFIG="grid_quick"; RUN_LIST="0"; D1_SIM_TIME="60s" ;;
+    --control-quick) CONFIG="control_quick"; RUN_LIST="0 1 2"; D1_SIM_TIME="60s" ;;
     --runs) [ -n "${2:-}" ] || { echo "D1: --runs needs a list, for example 3,17-20,41"; exit 2; }; RUN_LIST="$(parse_runs "$2")" || exit 2 ;;
     --cell) [ -n "${4:-}" ] || { echo "D1: --cell needs DENSITY PEN MSG, for example low 100 etsi"; exit 2; }; RUN_LIST="$(cell_runs "$2" "$3" "$4")" || exit 2 ;;
     --check) MODE="check"; CHECK_DIR="${2:-}" ;;
@@ -2346,6 +3354,7 @@ T0=$(date +%s)
 CHANGED=0
 write_sources || finish_fail "Cannot write the AoC sources to $EXT_DIR." "Check the rights of the Artery folder." "" ""
 patch_cmake || finish_fail "Cannot change $CMAKE_FILE." "Check the rights of the Artery folder." "" ""
+patch_cpservice || finish_fail "Cannot patch $ARTERY_DIR/src/artery/envmod/service/CpService.h for the AoC generation rule." "Check that the Artery sources are the pinned commit (a6_install.sh) and that git or patch is installed; the file cpservice-protected.patch in $EXT_DIR holds the change." "" ""
 SRC_CHANGED="$CHANGED"
 step_done "sources" "OK" "$( [ "$SRC_CHANGED" = 1 ] && echo "installed in scenarios/aoc" || echo "already up to date" )"
 if [ "$SRC_CHANGED" = 1 ] || [ ! -f "$LIB" ] || ! grep -q 'scenarios/aoc' "$BUILD_DIR/run-artery.ini" 2>/dev/null \
@@ -2470,6 +3479,13 @@ if [ "$CONFIG" = "grid" ]; then
         finish_fail "The index of the results did not run." "Paste the report in the chat." "$RES" "$SUMMARY"
     fi
     step_done "index" "OK" "$(fmt_dur $(( $(date +%s) - T0 )))"
+elif [ "$CONFIG" = "control_quick" ]; then
+    # the check of the rule (task E1): the aoc run against the two ETSI runs, after a warm-up of 10 s
+    # every car of the quick run is a station, so the receiver metric counts every object (--objects all)
+    SUMMARY="$("$VENV/bin/python" "$RULECHECK" "$RES/aoc-$CONFIG-2" --against "$RES/aoc-$CONFIG-0" --warmup 10 --objects all --out "$RES/rulecheck_vs_etsi" 2>&1
+               echo; "$VENV/bin/python" "$RULECHECK" "$RES/aoc-$CONFIG-2" --against "$RES/aoc-$CONFIG-1" --warmup 10 --objects all --out "$RES/rulecheck_vs_etsi_abs" 2>&1 | tail -n 4)"
+    IRC=0
+    step_done "summary" "OK" "rule check"
 else
     SUMMARY="$("$VENV/bin/python" - "$RES/aoc-$CONFIG-0/parquet/export_summary.json" <<'PYEOF' 2>&1
 import json, sys
