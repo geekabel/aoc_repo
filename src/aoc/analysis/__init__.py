@@ -16,6 +16,8 @@ Written:
   grid         the core grid of the plan: the cells and the run numbers, the index of the exported runs (D1, command ``aoc-grid``)
   gridcheck    the quality check of the grid: every run against its cell, the three events of each run, a table per cell
                (D2, command ``aoc-gridcheck``)
+  qfit         the motion value q of the reliability curve fitted per class on the calibration runs (D3, command ``aoc-fit-q``)
+  gridreplay   the replay of the five ways on every run of the grid, one receiver at a time (D3, command ``aoc-replay-grid``)
 
 Planned: the results database over the runs (task D4).
 """

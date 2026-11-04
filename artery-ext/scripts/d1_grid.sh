@@ -1987,6 +1987,12 @@ def runs_table() -> pd.DataFrame:
     return pd.DataFrame([dict(run=n, **cell_of_run(n)) for n in range(N_RUNS)])
 
 
+def seed_runs(seeds) -> list[int]:
+    """The run numbers of the given seeds in every cell (for example the seeds 0 and 1 of every cell: 72 runs)."""
+    wanted = {int(s) for s in seeds}
+    return [n for n in range(N_RUNS) if n % REPETITIONS in wanted]
+
+
 def cell_runs(density: str, pen: int, msg: str) -> list[int]:
     """The 12 run numbers of a cell."""
     return [run_number(density, pen, msg, seed) for seed in range(REPETITIONS)]

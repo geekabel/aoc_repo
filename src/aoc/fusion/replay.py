@@ -209,8 +209,22 @@ def run_weather(obs: pd.DataFrame, info: dict) -> str | None:
     return str(weather) if weather else None
 
 
+def _read_receivers(path: str, wanted: list[str]) -> pd.DataFrame:
+    """The observations table with the received rows of ``wanted`` only and every sensor row, read one row group at a
+    time (a filter on the whole file would hold the whole file in memory first)."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+    not_received = pc.field("src").is_null() | (pc.field("src") != "v2x")
+    keep = not_received | pc.field("rx_station").isin(wanted) if wanted else not_received
+    reader = pq.ParquetFile(path)
+    parts = [reader.read_row_group(i).filter(keep) for i in range(reader.num_row_groups)]
+    table = pa.concat_tables(parts) if parts else reader.schema_arrow.empty_table()
+    return table.to_pandas()
+
+
 def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, missing: str = "raise",
-             sensors: SensorTables | None | bool = True, weather: str | None = None) -> Run:
+             sensors: SensorTables | None | bool = True, weather: str | None = None, receivers=None) -> Run:
     """Loads one exported run: the folder that holds observations.parquet and truth.parquet.
 
     noise    True: the default noise model (sigma_x 0.3 m, sigma_v 0.5 m/s, seed 0).
@@ -223,6 +237,11 @@ def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, 
     weather  the weather of the replay: "clear" or "rain" (or any weather of the tables). None: the weather
              the exporter wrote (option --weather), else "clear". It is kept in ``run.weather`` for the
              reliability tables of the discounting.
+    receivers  None: every row. A list of vehicles: only their received rows (``src`` v2x) are read, with every
+             sensor row the table holds (the sensor tables need the sender's own rows to decide the fate of its
+             CPM rows, and the sensor rows are few). The file is read one row group at a time and filtered, so
+             the memory is that of the rows kept. The grid of D1 is replayed one receiver at a time this way: the
+             received rows of a dense run are tens of millions. The result is the one of a full load.
     """
     if missing not in ("raise", "drop"):
         raise ValueError('missing must be "raise" or "drop"')
@@ -230,7 +249,10 @@ def load_run(folder: str | os.PathLike, noise: NoiseModel | None | bool = True, 
     for name in ("observations.parquet", "truth.parquet"):
         if not os.path.isfile(os.path.join(folder, name)):
             raise FileNotFoundError("%s not found in %s. Export the run first with aoc-export." % (name, folder))
-    obs = pd.read_parquet(os.path.join(folder, "observations.parquet"))
+    if receivers is None:
+        obs = pd.read_parquet(os.path.join(folder, "observations.parquet"))
+    else:
+        obs = _read_receivers(os.path.join(folder, "observations.parquet"), [str(r) for r in receivers])
     truth = pd.read_parquet(os.path.join(folder, "truth.parquet"))
     info = {}
     if os.path.isfile(os.path.join(folder, "export_summary.json")):
