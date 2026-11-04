@@ -36,6 +36,7 @@ def test_parse_time_and_variables():
     assert parse_time("0.5s") == 0.5 and parse_time("200ms") == pytest.approx(0.2) and parse_time("1") == 1.0
     assert parse_time("abc") is None and parse_time(None) is None
     assert iteration_variables("$T=0.5s, $p=0.3") == {"T": "0.5s", "p": "0.3"} and iteration_variables("") == {}
+    assert iteration_variables('$rule=aoc, $grule="aoc", $n=1') == {"rule": "aoc", "grule": "aoc", "n": "1"}      # a quoted value
 
 
 def test_message_tables_of_the_generator():

@@ -11,7 +11,7 @@ The installation lives in `~/aoc-sim`. Before a manual run, load its settings wi
 | Folder | Content |
 | --- | --- |
 | `aoc/` | The logger (`AocLogger`), the network `AocWorld` that contains it, `AocCpService`: the CP service of Artery with the AoC generation rule (task E1) and a controlled loss of received CPMs (task C1), `cpservice-protected.patch`, the change of `CpService.h` the rule needs, and `AocLoadService`, a source of channel load (task E2) |
-| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `services-grid-10/25/50/100.xml` (CAM and CPM on a share of the cars, the grid of D1), `services-control.xml` (CA, the CP service of the extension and the load source on the cars with V2X, by name: the control grid of E1 and E2), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
+| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `services-grid-10/25/50/100.xml` (CAM and CPM on a share of the cars, the grid of D1), `services-control.xml` (CA and the CP service of the extension on the cars with V2X, by name: the control grid of E1 and E2), `services-load.xml` (the load source alone, for the load stations of E2), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
 | `link/` | The single-link validation scenario of task C1: the road (SUMO), the three cars, the OMNeT++ configuration with the grid T x p |
 | `vru/` | The occluded-VRU scenario of task C5 (E1 of the plan): the intersection, the buildings, the alley, the seven actors, the OMNeT++ configuration. The road files are written by `tools/make_vru_scenario.py` |
 | `grid/` | The core grid of task D1 (E3 of the plan): the road of C5 with background traffic at three densities and the event three times per run, the OMNeT++ configuration with the factors density x penetration x message config x 12 seeds; and the control grid of task E2 (`control_*`: the cars with V2X drawn in the route file, the factors density x penetration x generation rule x channel load x 4 seeds). The route files are written by `tools/make_grid_scenario.py` |
@@ -89,7 +89,8 @@ again.
 so the DCC of the station throttles them too. The packets carry nothing; the receivers count and drop them. The
 first packet goes out at a random time in the first period, the following ones every period with a jitter of
 `jitterShare` (10 %), so the stations stay apart. It stands for the other applications and the other stations
-that load the channel: the control grid runs it at 0, 10 and 25 packets per second per equipped car.
+that load the channel: the control grid runs it on 0, 12 or 36 static load stations around the junction, at 25
+packets per second each, without DCC (the equipped cars cannot load the channel themselves: their DCC holds them).
 
 **The controlled loss** (task C1). Each received CPM is dropped with probability `dropProbability` before the
 service reads it, with the random number generator of the module (a seed set gives the same drops), and the signal

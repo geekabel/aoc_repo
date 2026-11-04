@@ -213,7 +213,7 @@ as failed; the others are still read.
 The same road, events and densities with the equipped cars drawn in the route file (a car has V2X or nothing),
 `AocCpService` in place of `CpService` (the generation rule a factor of the run), and load stations around the
 junction: `docs/control_grid.md`. `bash d1_grid.sh --control` runs it with the same machinery as the core grid
-(`--runs`, `--check`; the results in `d1/results/control`); `--control-quick` runs the three rules once and checks
+(`--runs`, `--seeds`, `--check`; the results in `d1/results/control`); `--control-quick` runs the three rules once and checks
 the AoC rule (`aoc-rulecheck`, `docs/generation_rule.md`); `--control-load` runs the four load levels once.
 
 ## What D1 does not do

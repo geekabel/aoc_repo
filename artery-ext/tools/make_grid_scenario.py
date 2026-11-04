@@ -60,7 +60,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "artery-ext" / "grid"
 
 DENSITIES = {"low": 250.0, "medium": 450.0, "high": 700.0}     # vehicles per hour per approach, three approaches (about 15, 25 and 40 cars)
-PENETRATIONS = (10, 25, 50, 100)                                   # the control grid: the share of the cars with V2X, drawn in the route file
+PENETRATIONS = (25, 100)                                           # the control grid: the share of the cars with V2X, drawn in the route file
+CONTROL_DENSITIES = ("low", "high")                                # the control grid runs two of the three densities
 LOAD_STATIONS = (0, 12, 24, 36)                                   # the control grid: the load stations around the junction
 LOAD_GRID = 6                                                      # the stations stand on a 6 x 6 grid ...
 LOAD_SPACING = 80.0                                                # ... with 80 m between them, centred on the junction
@@ -224,7 +225,7 @@ def files() -> dict:
     for density in DENSITIES:
         out["grid_%s.rou.xml" % density] = routes_xml(density)
         out["grid_%s.sumo.cfg" % density] = sumocfg_xml("grid_%s" % density)
-        for pen in PENETRATIONS:
+        for pen in (PENETRATIONS if density in CONTROL_DENSITIES else ()):
             name = "control_%s_p%d" % (density, pen)
             out[name + ".rou.xml"] = routes_xml(density, pen)
             out[name + ".sumo.cfg"] = sumocfg_xml(name)

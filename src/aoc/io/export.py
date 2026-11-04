@@ -163,7 +163,7 @@ def iteration_variables(text):
         part = part.strip().lstrip("$")
         if "=" in part:
             name, value = part.split("=", 1)
-            out[name.strip()] = value.strip()
+            out[name.strip()] = value.strip().strip('"')         # OMNeT++ keeps the quotes of a quoted iteration value
     return out
 
 

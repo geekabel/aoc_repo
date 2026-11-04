@@ -452,7 +452,17 @@ void AocLogger::initialize()
     run << "run_id," << cfg->substituteVariables("${runid}") << '\n';
     run << "repetition," << cfg->substituteVariables("${repetition}") << '\n';
     run << "seed_set," << cfg->substituteVariables("${seedset}") << '\n';
-    run << "iteration_vars,\"" << cfg->substituteVariables("${iterationvars}") << "\"\n";
+    {   // a CSV field: a quote inside the value is doubled
+        std::string vars = cfg->substituteVariables("${iterationvars}");
+        std::string quoted;
+        for (char c : vars) {
+            if (c == '"') {
+                quoted += '"';
+            }
+            quoted += c;
+        }
+        run << "iteration_vars,\"" << quoted << "\"\n";
+    }
     run << "network," << getSystemModule()->getNedTypeName() << '\n';
     run.close();
 
@@ -1838,7 +1848,7 @@ def iteration_variables(text):
         part = part.strip().lstrip("$")
         if "=" in part:
             name, value = part.split("=", 1)
-            out[name.strip()] = value.strip()
+            out[name.strip()] = value.strip().strip('"')         # OMNeT++ keeps the quotes of a quoted iteration value
     return out
 
 

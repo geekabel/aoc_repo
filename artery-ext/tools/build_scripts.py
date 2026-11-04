@@ -71,8 +71,8 @@ def build_c5():
 def build_d1():
     template = (TOOLS / "d1_grid.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "D1_FILE_EOF"), template)
-    if n != 34:
-        raise SystemExit(f"d1_grid.template.sh: expected 34 placeholders, found {n}")
+    if n != 28:
+        raise SystemExit(f"d1_grid.template.sh: expected 28 placeholders, found {n}")
     return text
 
 

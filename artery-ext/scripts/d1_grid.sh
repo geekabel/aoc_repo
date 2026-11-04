@@ -31,9 +31,12 @@
 #                                            ratio each level gives (task E2)
 #   bash d1_grid.sh --control                the 240 runs of the control grid that are not done yet (task E2; hours)
 #   bash d1_grid.sh --control --runs 3,17-20 these run numbers of the control grid
+#   bash d1_grid.sh --control --seeds 0,1    the runs of the seeds 0 and 1 of every cell (120 runs): a first pass over the whole
+#                                            design, before the seeds 2 and 3
 #   bash d1_grid.sh --control --check [DIR]  index the results folder of the control grid again
 #   bash d1_grid.sh --cell low 100 etsi      the 12 runs of one cell
 #   bash d1_grid.sh --runs 3,17-20,41        these run numbers (ranges allowed)
+#   bash d1_grid.sh --seeds 0-5              the runs of these seeds of every cell
 #   bash d1_grid.sh --check [DIR]            index the results folder again (default: the grid folder)
 #   bash d1_grid.sh --help
 #
@@ -470,7 +473,17 @@ void AocLogger::initialize()
     run << "run_id," << cfg->substituteVariables("${runid}") << '\n';
     run << "repetition," << cfg->substituteVariables("${repetition}") << '\n';
     run << "seed_set," << cfg->substituteVariables("${seedset}") << '\n';
-    run << "iteration_vars,\"" << cfg->substituteVariables("${iterationvars}") << "\"\n";
+    {   // a CSV field: a quote inside the value is doubled
+        std::string vars = cfg->substituteVariables("${iterationvars}");
+        std::string quoted;
+        for (char c : vars) {
+            if (c == '"') {
+                quoted += '"';
+            }
+            quoted += c;
+        }
+        run << "iteration_vars,\"" << quoted << "\"\n";
+    }
     run << "network," << getSystemModule()->getNedTypeName() << '\n';
     run.close();
 
@@ -1826,11 +1839,12 @@ description = "control grid: density x penetration x generation rule x channel l
 #   rule   etsi (CpService of Artery), etsi_abs (the rules of ETSI on the absolute position, a CPM only when due),
 #          aoc (the AoC rule, n = 1), aoc2 (n = 2), aocdev (n = 1 with the deviation trigger at half the tolerance)
 #   load   the load stations around the junction (load_<n>.xml): none, 12, 36; each one sends 25 packets of 300 bytes
-#          per second, DP3, without DCC
+#          per second, DP3, without DCC. An iteration value is never quoted: OMNeT++ keeps the quotes in ${iterationvars},
+#          which the logger writes to run.csv
 *.traci.launcher.sumocfg = "control_${density=low,high}_p${pen=25,100}.sumo.cfg"
 *.node[*].middleware.services = xmldoc("services-control.xml")
 *.aocLogger.label = "${rule=etsi,etsi_abs,aoc,aoc2,aocdev}-${load=0,12,36}"
-*.node[*].middleware.CP.generationRule = ${grule="etsi","etsi_abs","aoc","aoc","aoc" ! rule}
+*.node[*].middleware.CP.generationRule = "${grule=etsi,etsi_abs,aoc,aoc,aoc ! rule}"
 *.node[*].middleware.CP.repeats = ${n=1,1,1,2,1 ! rule}
 *.node[*].middleware.CP.deviationFraction = ${dev=0,0,0,0,0.5 ! rule}
 *.node[*].middleware.CP.objectInclusionConfig = 1
@@ -1925,255 +1939,6 @@ D1_FILE_EOF
     <poly id="building_alley_N" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629614 6.900674,47.629614 6.900674,47.629892 6.900115,47.629892 6.900115,47.629614"/>
     <poly id="building_alley_S" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629578 6.900674,47.629578 6.900674,47.629308 6.900115,47.629308 6.900115,47.629578"/>
 </additional>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density low: 250 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density medium: 450 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density high: 700 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_low.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_medium.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_high.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
 D1_FILE_EOF
     put_file "$GRID_DIR/services-grid-10.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2277,8 +2042,8 @@ D1_FILE_EOF
 	</service>
 </services>
 D1_FILE_EOF
-    # the route files and the SUMO configurations of the control grid (24 files) and the load stations (4 files) come from the
-    # generator of the scenario
+    # the route files and the SUMO configurations of the core grid (6 files) and of the control grid (8 files) and the load
+    # stations (4 files) come from the generator of the scenario (it writes a file only when its content changes)
     put_file "$SCENARIO" <<'D1_FILE_EOF' || return 1
 #!/usr/bin/env python3
 """Writes the SUMO route files and configurations of the core grid (task D1, experiment E3 of the plan).
@@ -2342,7 +2107,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "artery-ext" / "grid"
 
 DENSITIES = {"low": 250.0, "medium": 450.0, "high": 700.0}     # vehicles per hour per approach, three approaches (about 15, 25 and 40 cars)
-PENETRATIONS = (10, 25, 50, 100)                                   # the control grid: the share of the cars with V2X, drawn in the route file
+PENETRATIONS = (25, 100)                                           # the control grid: the share of the cars with V2X, drawn in the route file
+CONTROL_DENSITIES = ("low", "high")                                # the control grid runs two of the three densities
 LOAD_STATIONS = (0, 12, 24, 36)                                   # the control grid: the load stations around the junction
 LOAD_GRID = 6                                                      # the stations stand on a 6 x 6 grid ...
 LOAD_SPACING = 80.0                                                # ... with 80 m between them, centred on the junction
@@ -2506,7 +2272,7 @@ def files() -> dict:
     for density in DENSITIES:
         out["grid_%s.rou.xml" % density] = routes_xml(density)
         out["grid_%s.sumo.cfg" % density] = sumocfg_xml("grid_%s" % density)
-        for pen in PENETRATIONS:
+        for pen in (PENETRATIONS if density in CONTROL_DENSITIES else ()):
             name = "control_%s_p%d" % (density, pen)
             out[name + ".rou.xml"] = routes_xml(density, pen)
             out[name + ".sumo.cfg"] = sumocfg_xml(name)
@@ -2728,7 +2494,7 @@ def iteration_variables(text):
         part = part.strip().lstrip("$")
         if "=" in part:
             name, value = part.split("=", 1)
-            out[name.strip()] = value.strip()
+            out[name.strip()] = value.strip().strip('"')         # OMNeT++ keeps the quotes of a quoted iteration value
     return out
 
 
@@ -3295,7 +3061,7 @@ def inclusions_table(obj, rule, warmup, tx=None):
 def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, objects="unequipped"):
     """Per receiver: the share of the time an object within range is known with alpha at or above the target."""
     truth, rx, obj = tables["truth"], tables["cpm_rx"], tables["cpm_obj"]
-    stations = set(tables["nodes"]["node_id"].astype(str)) if objects == "unequipped" else set()
+    stations = set(tables["nodes"]["node_id"].dropna().astype(str)) if objects == "unequipped" else set()
     reports = rx.merge(obj[["station_id", "reference_time_ms", "gt_match_id", "t_meas", "speed_cms", "class"]], on=["station_id", "reference_time_ms"], how="inner")
     reports = reports[reports["gt_match_id"].notna()]
     columns = ["rx_id", "pairs", "known", "time_above_target", "cbr_mean"]
@@ -3888,9 +3654,22 @@ cell_runs() {
     local base=$(( ((d * 4 + p) * 3 + m) * 12 ))
     seq -s ' ' "$base" $((base + 11))
 }
+# the runs of the seeds $1 (a list like --runs) of every cell: run = cell * seeds_per_cell + seed
+seed_runs() {
+    local seeds s base out=""
+    seeds="$(parse_runs "$1")" || return 2
+    for s in $seeds; do
+        [ "$s" -lt "$N_SEEDS" ] || { echo "D1: the seeds go from 0 to $((N_SEEDS - 1)) in this design" >&2; return 2; }
+    done
+    for base in $(seq 0 "$N_SEEDS" $((N_RUNS - 1))); do
+        for s in $seeds; do out="$out $((base + s))"; done
+    done
+    echo "$out" | tr -s ' ' | sed 's/^ //'
+}
+N_SEEDS=12
 if [ "${1:-}" = "--control" ]; then                 # the control grid (task E2): the same script, the design control
     shift
-    DESIGN="control"; CONFIG="control"; N_RUNS=240
+    DESIGN="control"; CONFIG="control"; N_RUNS=240; N_SEEDS=4
     case "${1:-}" in
         --cell) echo "D1: --cell is for the core grid; give the run numbers of the control grid with --runs (aoc-grid --design control --list prints them)"; exit 2 ;;
         --quick|--control-quick|--control-load) echo "D1: $1 does not go with --control"; exit 2 ;;
@@ -3902,6 +3681,7 @@ case "${1:-}" in
     --control-quick) CONFIG="control_quick"; RUN_LIST="0 1 2"; D1_SIM_TIME="60s" ;;
     --control-load) CONFIG="control_load"; RUN_LIST="0 1 2 3"; D1_SIM_TIME="60s" ;;
     --runs) [ -n "${2:-}" ] || { echo "D1: --runs needs a list, for example 3,17-20,41"; exit 2; }; RUN_LIST="$(parse_runs "$2")" || exit 2 ;;
+    --seeds) [ -n "${2:-}" ] || { echo "D1: --seeds needs a list, for example 0,1"; exit 2; }; RUN_LIST="$(seed_runs "$2")" || exit 2 ;;
     --cell) [ -n "${4:-}" ] || { echo "D1: --cell needs DENSITY PEN MSG, for example low 100 etsi"; exit 2; }; RUN_LIST="$(cell_runs "$2" "$3" "$4")" || exit 2 ;;
     --check) MODE="check"; CHECK_DIR="${2:-}" ;;
     -h|--help) usage; exit 0 ;;
@@ -4111,13 +3891,16 @@ if [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; then
     step_done "index" "OK" "$(fmt_dur $(( $(date +%s) - T0 )))"
 elif [ "$CONFIG" = "control_load" ]; then
     # the busy ratio each load level gives (task E2): per run, the load stations, the CBR seen by the receivers after a warm-up
-    # of 10 s, the CPM rate, the delivery ratio and the time the simulation took
-    SUMMARY="$("$VENV/bin/python" - "$RES" "$CONFIG" <<'PYEOF' 2>&1
+    # of 10 s, the CPM rate and the time the simulation took (the delivery ratio of the export is not printed: it counts the
+    # receivers in range of a sender, which the loaded channel changes too)
+    SUMMARY="$("$VENV/bin/python" - "$RES" "$CONFIG" "$GRID_DIR/omnetpp.ini" <<'PYEOF' 2>&1
 import glob, json, os, re, sys
 import pandas as pd
-res, config = sys.argv[1], sys.argv[2]
+res, config, ini = sys.argv[1], sys.argv[2], sys.argv[3]
+m = re.search(r"^\*\.rsu\*\.middleware\.LOAD\.rate\s*=\s*([0-9.]+)\s*Hz", open(ini).read(), re.M)
+rate = float(m.group(1)) if m else float("nan")                                       # the packets per second of one load station
 print("load level: the busy ratio and the time of a run of 60 s (high density, 100 %, the rules of ETSI); load = the load stations")
-print("%-6s %-6s %-9s %-9s %-9s %-9s %-11s %-10s %s" % ("run", "load", "cars", "cbr_mean", "cbr_p95", "cpm_hz", "load_pkt/s", "pdr", "wall"))
+print("%-6s %-6s %-9s %-9s %-9s %-9s %-11s %s" % ("run", "load", "cars", "cbr_mean", "cbr_p95", "cpm_hz", "load_pkt/s", "wall"))
 for folder in sorted(glob.glob(os.path.join(res, "aoc-%s-*" % config)), key=lambda f: int(f.rsplit("-", 1)[1])):
     n = int(folder.rsplit("-", 1)[1])
     info = json.load(open(os.path.join(folder, "parquet", "export_summary.json")))
@@ -4134,8 +3917,8 @@ for folder in sorted(glob.glob(os.path.join(res, "aoc-%s-*" % config)), key=lamb
         wall = m[-1] + " s" if m else ""
     except OSError:
         pass
-    print("%-6d %-6d %-9d %-9.4f %-9.4f %-9.2f %-11d %-10.3f %s" % (n, load, senders, rx["cbr"].mean(), rx["cbr"].quantile(0.95), len(tx) / seconds / max(senders, 1),
-                                                                   load * 25, rx["pdr_window"].mean() if "pdr_window" in rx else float("nan"), wall))
+    print("%-6d %-6d %-9d %-9.4f %-9.4f %-9.2f %-11.0f %s" % (n, load, senders, rx["cbr"].mean(), rx["cbr"].quantile(0.95), len(tx) / seconds / max(senders, 1),
+                                                             load * rate, wall))
 PYEOF
 )"
     IRC=0

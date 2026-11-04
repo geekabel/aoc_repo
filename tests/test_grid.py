@@ -123,7 +123,7 @@ def test_scenario_files_are_up_to_date(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     proc = subprocess.run([sys.executable, str(tool), "--out", str(tmp_path)], capture_output=True, text=True)
     expected = ["grid_%s.%s" % (d, ext) for d in grid.DENSITIES for ext in ("rou.xml", "sumo.cfg")]
-    expected += ["control_%s_p%d.%s" % (d, p, ext) for d in grid.DENSITIES for p in grid.PENETRATIONS for ext in ("rou.xml", "sumo.cfg")]
+    expected += ["control_%s_p%d.%s" % (d, p, ext) for d in grid.CONTROL.factors["density"] for p in grid.CONTROL.factors["pen"] for ext in ("rou.xml", "sumo.cfg")]
     expected += ["load_%d.xml" % n for n in (0, 12, 24, 36)]
     assert proc.returncode == 0 and sorted(p.name for p in tmp_path.iterdir()) == sorted(expected)
 
@@ -274,7 +274,8 @@ def test_the_control_configuration_holds_the_factors():
     assert control["*.aoclogger.label"] == '"${rule=etsi,etsi_abs,aoc,aoc2,aocdev}-${load=0,12,36}"'
     assert control["*.staticnodes.nodes"] == 'xmldoc("load_${load}.xml")' and control["repeat"] == "4"
     assert ini["General"]["*.rsu*.vanetza[*].dcc.typename"] == '"NoRateControlDccEntity"' and ini["General"]["*.rsu*.middleware.load.rate"] == "25Hz"
-    assert control["*.node[*].middleware.cp.generationrule"] == '${grule="etsi","etsi_abs","aoc","aoc","aoc" ! rule}'
+    assert control["*.node[*].middleware.cp.generationrule"] == '"${grule=etsi,etsi_abs,aoc,aoc,aoc ! rule}"'      # the quotes outside the iteration
+    assert not re.search(r'\$\{[a-z]+="', "\n".join(control.values()))                                             # a quoted value breaks run.csv
     assert control["*.node[*].middleware.cp.repeats"] == "${n=1,1,1,2,1 ! rule}"
     assert control["*.node[*].middleware.cp.deviationfraction"] == "${dev=0,0,0,0,0.5 ! rule}"
     assert control["*.node[*].middleware.services"] == 'xmldoc("services-control.xml")'
