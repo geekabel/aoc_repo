@@ -150,7 +150,7 @@ CP service is off sends no CPM at all. With `--pilot` the six runs must be there
 command exits with 0 on PASS, 1 on FAIL, 2 when no run was found.
 
 What the pilot shows is the "done when" of the plan for E1: the pilot runs end to end and the occlusion event
-is visible in the logs. The belief of the ego over time (the money figure F2) is drawn from these logs by the
+is visible in the logs. The belief of the ego over time (the money figure F6) is drawn from these logs by the
 pipeline of B2 to B8 in a later task.
 
 ## Tests
