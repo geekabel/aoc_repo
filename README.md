@@ -16,7 +16,7 @@ This repository holds what the tasks produce.
 | `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs, the belief of one vehicle in one object over time and the pilot through the whole pipeline, the cells, the index and the quality check of the core grid, the calibration of q, the replay of the grid and the results database | B5, B8, C1 to C3, C5, C7, D1 to D4 |
 | `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, the occluded-VRU scenario, the core grid, scripts for the workstation | A6, A7, A8, C1, C5, D1 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
-| `figures/` | One script per figure of the papers: `f03_ages.py` (F3), `f04_ealpha.py` (F4) and `f06_money.py` (F6) so far | C2, C3, C7, D5, E3 |
+| `figures/` | One script per figure of the papers: `f02_alpha.py` (F2), `f03_ages.py` (F3), `f04_ealpha.py` (F4), `f05_calibration.py` (F5), `f06_money.py` (F6), `f07_awareness.py` (F7) and `f08_stale.py` (F8) so far | C2, C3, C7, D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `results/` | The small tables brought back from the workstation (the check of the grid, D2; the fit of q and the replay of the grid, D3) and the results database built from them (D4) | D2 to D4 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |

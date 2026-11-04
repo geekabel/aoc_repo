@@ -3,12 +3,14 @@
   F2  the reliability curve alpha(age) per class: the curve of the note (the assumed q), the fitted curve and the
       measured hit rate of the calibration runs (``results/d3/qfit_curves.csv``), with the half-life markers
   F5  the reliability diagram of the belief that an object exists, one curve per way (``results/d4/reliability.csv``)
-  F7  the awareness ratio against the penetration, one line per way with its confidence band (``results/d4/cells.csv``)
+  F7  the awareness ratio and the calibration error against the penetration, one line per way with its confidence band
+      over the evaluation runs of the level (``results/d4/runs.csv``)
   F8  the stale-confidence rate against the channel busy ratio, one marker per cell and way (``results/d4/cells.csv``)
 
     aoc-grid-figures [--results results] [--out figures] [--only f05]
 
-Each figure is one PDF (vector) and prints the numbers quoted in the text. The style is the one of F3, F4 and F6.
+Each figure is one PDF (vector) and prints the numbers quoted in the text. The style is the one of F3, F4 and F6. A
+table without the rows a figure needs raises ``NoData`` (the command says so and goes on).
 """
 from __future__ import annotations
 
@@ -27,6 +29,11 @@ COLORS = {"B0": "#7f7f7f", "B1": "#ff7f0e", "B2": "#2ca02c", "B3": "#1f77b4", "B
 MARKERS = {"B0": "s", "B1": "^", "B2": "D", "B3": "o", "B4": "v"}
 SHORT = {"B0": "B0 full trust", "B1": "B1 cutoff 1 s", "B2": "B2 Bayesian", "B3": "B3 AoC", "B4": "B4 Dempster rule"}
 CLASS_LABELS = {"passenger_car": "car", "heavy_truck": "truck", "pedestrian": "pedestrian", "cyclist": "cyclist"}
+PEN_FILL = {10: "white", 25: "#d9d9d9", 50: "#8c8c8c", 100: "black"}                   # the face of a marker in F8: the penetration of the cell
+
+
+class NoData(ValueError):
+    """The tables are there but hold no row the figure can draw."""
 
 
 def _style():
@@ -45,7 +52,9 @@ def f02_alpha(results: str, path: str) -> dict:
     table = pd.read_csv(os.path.join(results, "d3", "qfit.csv")).set_index("cls")
     plt = _style()
     classes = [c for c in ("passenger_car", "heavy_truck", "pedestrian") if c in set(curves["cls"])] or sorted(curves["cls"].unique())
-    fig, axes = plt.subplots(1, len(classes), figsize=(2.3 * len(classes) + 0.3, 2.2), sharey=True)
+    if not classes:
+        raise NoData("qfit_curves.csv has no class")
+    fig, axes = plt.subplots(1, len(classes), figsize=(6.9, 2.2), sharey=True)
     axes = np.atleast_1d(axes)
     numbers = {}
     for ax, cls in zip(axes, classes):
@@ -53,18 +62,19 @@ def f02_alpha(results: str, path: str) -> dict:
         ax.plot(c["age"], c["alpha_assumed"], "--", color="#7f7f7f", lw=1.0, label="note (assumed q)")
         ax.plot(c["age"], c["alpha_fitted"], "-", color="#1f77b4", lw=1.2, label="fitted q")
         ax.plot(c["age"], c["hit_rate"], "o", color="#1f77b4", ms=2.4, mfc="white", mew=0.7, label="measured")
-        for q_col, hl_col, color, y in (("q_assumed", "half_life_assumed", "#7f7f7f", 0.5), ("q_fitted", "half_life_fitted", "#1f77b4", 0.5)):
+        for hl_col, color, ls in (("half_life_assumed", "#7f7f7f", "--"), ("half_life_fitted", "#1f77b4", "-")):
             if cls in table.index and np.isfinite(table.loc[cls, hl_col]):
                 hl = float(table.loc[cls, hl_col])
-                ax.plot([hl, hl], [0.0, y], color=color, lw=0.6, ls=":")
+                ax.plot([hl, hl], [0.0, 0.5], color=color, lw=0.6, ls=ls)
         ax.axhline(0.5, color="#bbbbbb", lw=0.5, ls=":")
         ax.set_xlim(0, 5)
         ax.set_ylim(0, 1.02)
         ax.set_xlabel("age of the report (s)")
         label = CLASS_LABELS.get(cls, cls)
-        if cls in table.index:
-            ax.set_title("%s: q %.2g to %.2g, half-life %.1f to %.1f s" % (label, table.loc[cls, "q_assumed"], table.loc[cls, "q_fitted"],
-                                                                        table.loc[cls, "half_life_assumed"], table.loc[cls, "half_life_fitted"]), fontsize=7.5)
+        if cls in table.index and np.isfinite(table.loc[cls, ["q_assumed", "q_fitted", "half_life_assumed", "half_life_fitted"]].astype(float)).all():
+            ax.set_title("%s: q note %.2g, fit %.2g; half-life %.1f s, %.1f s" % (label, table.loc[cls, "q_assumed"], table.loc[cls, "q_fitted"],
+                                                                                table.loc[cls, "half_life_assumed"], table.loc[cls, "half_life_fitted"]),
+                         fontsize=7.5)
             numbers[cls] = dict(q_assumed=float(table.loc[cls, "q_assumed"]), q_fitted=float(table.loc[cls, "q_fitted"]),
                                 half_life_assumed=float(table.loc[cls, "half_life_assumed"]), half_life_fitted=float(table.loc[cls, "half_life_fitted"]),
                                 hit_rate_5s=float(c["hit_rate"].iloc[-1]), fitted_5s=float(c["alpha_fitted"].iloc[-1]),
@@ -84,17 +94,20 @@ def f05_reliability(results: str, path: str, hold: float = 5.0) -> dict:
     """F5: the reliability diagram of the belief, one curve per way, with the share of the objects per bin below."""
     rel = pd.read_csv(os.path.join(results, "d4", "reliability.csv"))
     rel = rel[rel["hold"] == hold]
+    if not len(rel) or not (rel["count"] > 0).any():
+        raise NoData("reliability.csv has no object at the hold of %g s" % hold)
     plt = _style()
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(3.45, 4.1), gridspec_kw={"height_ratios": [3.0, 1.2]}, sharex=True)
     ax.plot([0, 1], [0, 1], color="#bbbbbb", lw=0.8, ls="--", label="perfect calibration")
     numbers = {}
     width = 0.1 / (len(WAYS) + 1)
     for k, way in enumerate(WAYS):
-        r = rel[(rel["way"] == way) & (rel["count"] > 0)].sort_values("bin")
-        if r.empty:
-            continue
-        ax.plot(r["belief_mean"], r["share_there"], "-", color=COLORS[way], lw=1.0, marker=MARKERS[way], ms=3.2, mfc="white", mew=0.8, label=SHORT[way])
         full = rel[rel["way"] == way].sort_values("bin")
+        if not (full["count"] > 0).any():
+            continue
+        r = full.where(full["count"] > 0)                                       # an empty bin breaks the line: no segment across it
+        ax.plot(r["belief_mean"], r["share_there"], "-", color=COLORS[way], lw=1.0, marker=MARKERS[way], ms=3.2, mfc="white", mew=0.8, label=SHORT[way],
+                clip_on=False)
         ax2.bar(full["low"] + width * (k + 0.5), full["share_of_objects"], width=width, color=COLORS[way], lw=0)
         ece = float((full["count"] / full["count"].sum() * (full["belief_mean"].fillna(0) - full["share_there"].fillna(0)).abs()).sum())
         numbers[way] = dict(pooled_calibration_error=round(ece, 4), top_bin_share_there=round(float(full.loc[full["bin"] == 9, "share_there"].iloc[0]), 4),
@@ -124,13 +137,17 @@ def f07_awareness(results: str, path: str) -> dict:
     of the level."""
     runs = pd.read_csv(os.path.join(results, "d4", "runs.csv"))
     runs = runs[(runs["hold"] == 5.0) & (runs["kind"] == "evaluation")]
+    if not len(runs):
+        raise NoData("runs.csv has no evaluation run at the hold of 5 s")
     plt = _style()
     fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.3))
     numbers = {}
     for ax, col, label in ((axes[0], "awareness_ratio", "awareness ratio within 200 m"),
                            (axes[1], "calibration_error", "calibration error of the belief")):
         for way in WAYS:
-            xs, ys, lo, hi = [], [], [], []
+            if not (runs["way"] == way).any():
+                continue
+            xs, ys, lo, hi, ns = [], [], [], [], []
             for pen in grid.PENETRATIONS:
                 part = runs[(runs["way"] == way) & (runs["pen"] == pen)][col]
                 m, a, b, n = mean_ci(part)
@@ -138,16 +155,18 @@ def f07_awareness(results: str, path: str) -> dict:
                 ys.append(m)
                 lo.append(a)
                 hi.append(b)
+                ns.append(n)
             ax.plot(xs, ys, "-", color=COLORS[way], lw=1.0, marker=MARKERS[way], ms=3.2, mfc="white", mew=0.8, label=SHORT[way])
             ax.fill_between(xs, lo, hi, color=COLORS[way], alpha=0.15, lw=0)
-            numbers.setdefault(way, {})[col] = {pen: round(y, 4) for pen, y in zip(xs, ys)}
+            numbers.setdefault(way, {})[col] = {pen: (round(y, 4), round(a, 4), round(b, 4), n) for pen, y, a, b, n in zip(xs, ys, lo, hi, ns)}
         ax.set_xlabel("penetration of the CP service (%)")
         ax.set_ylabel(label, fontsize=7.5)
         ax.set_xticks(list(grid.PENETRATIONS))
         ax.grid(alpha=0.25, lw=0.4)
     axes[0].set_ylim(0.5, 1.0)
     axes[0].legend(loc="lower right", frameon=False)
-    axes[1].set_ylim(0, 0.6)
+    axes[1].set_yscale("log")
+    axes[1].set_ylim(0.01, 1.0)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -157,21 +176,32 @@ def f07_awareness(results: str, path: str) -> dict:
 def f08_stale(results: str, path: str) -> dict:
     """F8: the stale-confidence rate against the channel busy ratio, one marker per cell and way, with the ghost rate beside."""
     cells = pd.read_csv(os.path.join(results, "d4", "cells.csv"))
+    if not len(cells):
+        raise NoData("cells.csv is empty")
     plt = _style()
+    from matplotlib.lines import Line2D
     fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.3), sharex=True)
     numbers = {}
     for ax, col, label in ((axes[0], "stale_rate", "stale-confidence rate"),
                            (axes[1], "ghost_rate", "ghost rate")):
         for way in WAYS:
             c = cells[cells["way"] == way]
-            ax.errorbar(c["cbr_mean"], c[col], yerr=[c[col] - c[col + "_lo"], c[col + "_hi"] - c[col]], fmt=MARKERS[way], color=COLORS[way], ms=3.0,
-                        mfc="white", mew=0.8, lw=0.6, capsize=0, label=SHORT[way])
-            numbers.setdefault(way, {})[col] = dict(mean=round(float(c[col].mean()), 4), min=round(float(c[col].min()), 4), max=round(float(c[col].max()), 4))
+            if c.empty:
+                continue
+            for pen in grid.PENETRATIONS:                                      # the face of the marker says the penetration of the cell
+                cp = c[c["pen"] == pen]
+                ax.errorbar(cp["cbr_mean"], cp[col], yerr=[cp[col] - cp[col + "_lo"], cp[col + "_hi"] - cp[col]], fmt=MARKERS[way], color=COLORS[way],
+                            ms=3.2, mfc=PEN_FILL.get(pen, "white"), mew=0.8, lw=0.6, capsize=0, label=SHORT[way] if pen == grid.PENETRATIONS[0] else None)
+            half = float(((c[col + "_hi"] - c[col + "_lo"]) / 2).max())
+            numbers.setdefault(way, {})[col] = dict(mean=round(float(c[col].mean()), 4), min=round(float(c[col].min()), 4), max=round(float(c[col].max()), 4),
+                                                    largest_half_width=round(half, 4))
         ax.set_xlabel("channel busy ratio (mean over the received CPMs)")
         ax.set_ylabel(label, fontsize=7.5)
         ax.set_ylim(-0.02, 1.02)
         ax.grid(alpha=0.25, lw=0.4)
     axes[0].legend(loc="center right", frameon=False)
+    pens = [Line2D([], [], marker="o", color="#444444", mfc=PEN_FILL[p], mew=0.8, ms=3.2, lw=0, label="%d %%" % p) for p in grid.PENETRATIONS]
+    axes[1].legend(handles=pens, title="penetration", loc="center right", frameon=False)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -207,6 +237,9 @@ def main(argv=None) -> int:
             numbers = draw(args.results, path)
         except FileNotFoundError as exc:
             print("%s: no results (%s), nothing drawn" % (key, exc))
+            continue
+        except NoData as exc:
+            print("%s: %s, nothing drawn" % (key, exc))
             continue
         print("written: %s" % path)
         for k, v in numbers.items():
