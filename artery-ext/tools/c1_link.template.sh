@@ -171,6 +171,9 @@ C1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'C1_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocCpService.cc@@
 C1_FILE_EOF
+    put_file "$EXT_DIR/cpservice-protected.patch" <<'C1_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/cpservice-protected.patch@@
+C1_FILE_EOF
 }
 
 # the scenario: the OMNeT++ configuration, the SUMO files, the services and the sensors
@@ -213,6 +216,20 @@ patch_cmake() {
     if grep -q 'add_subdirectory(aoc)' "$CMAKE_FILE"; then return 0; fi
     [ -f "$CMAKE_FILE.a8-backup" ] || cp -p "$CMAKE_FILE" "$CMAKE_FILE.a8-backup" || return 1
     printf '\n# AoC logger (task A8 of the AoC plan)\nif(WITH_ENVMOD)\n    add_subdirectory(aoc)\nendif()\n' >> "$CMAKE_FILE" || return 1
+    CHANGED=1
+}
+
+# the AoC generation rule (task E1) overrides three methods of CpService: this patch makes them protected and virtual in
+# the Artery sources (src/artery/envmod/service/CpService.h). Applied once; a header that already has it is left alone.
+patch_cpservice() {
+    local patch="$EXT_DIR/cpservice-protected.patch" header="$ARTERY_DIR/src/artery/envmod/service/CpService.h"
+    [ -f "$header" ] || return 1
+    if grep -q 'virtual bool checkPerceivedObjectTrigger' "$header"; then return 0; fi
+    [ -f "$header.aoc-backup" ] || cp -p "$header" "$header.aoc-backup" || return 1
+    if [ -d "$ARTERY_DIR/.git" ] && git -C "$ARTERY_DIR" apply "$patch" >/dev/null 2>&1; then :;
+    elif ( cd "$ARTERY_DIR" && patch -p1 --forward --silent < "$patch" ) >/dev/null 2>&1; then :;
+    else return 1; fi
+    grep -q 'virtual bool checkPerceivedObjectTrigger' "$header" || return 1
     CHANGED=1
 }
 
@@ -351,10 +368,11 @@ T0=$(date +%s)
 CHANGED=0
 write_sources || finish_fail "Cannot write the AoC sources to $EXT_DIR." "Check the rights of the Artery folder." "" ""
 patch_cmake || finish_fail "Cannot change $CMAKE_FILE." "Check the rights of the Artery folder." "" ""
+patch_cpservice || finish_fail "Cannot patch $ARTERY_DIR/src/artery/envmod/service/CpService.h for the AoC generation rule." "Check that the Artery sources are the pinned commit (a6_install.sh) and that git or patch is installed; the file cpservice-protected.patch in $EXT_DIR holds the change." "" ""
 SRC_CHANGED="$CHANGED"
 step_done "sources" "OK" "$( [ "$SRC_CHANGED" = 1 ] && echo "installed in scenarios/aoc" || echo "already up to date" )"
 if [ "$SRC_CHANGED" = 1 ] || [ ! -f "$LIB" ] || ! grep -q 'scenarios/aoc' "$BUILD_DIR/run-artery.ini" 2>/dev/null \
-   || ! nm -D "$LIB" 2>/dev/null | grep -q AocCpService; then
+   || ! nm -D "$LIB" 2>/dev/null | grep -q 'AocCpService.*ageLimit'; then
     say "Building the AoC sources with $C1_JOBS jobs. Logs: $LOG_DIR/cmake.log and build.log"
     if ! ( cd "$ARTERY_DIR" && cmake -S . -B build ) > "$LOG_DIR/cmake.log" 2>&1; then
         step_done "build" "FAILED" "cmake configure"

@@ -8,8 +8,9 @@
                   its services and sensors files, the exporter and the link check (src/aoc/analysis/link.py)
   c5_vru.sh       template c5_vru.template.sh      +  the AoC sources, the occluded-VRU scenario (artery-ext/vru),
                   its services and sensors files, the exporter and the event check (src/aoc/analysis/vru.py)
-  d1_grid.sh      template d1_grid.template.sh     +  the AoC sources, the road of C5 and the grid scenario (artery-ext/grid),
-                  the four services files, the sensors, the exporter and the grid index (src/aoc/analysis/grid.py)
+  d1_grid.sh      template d1_grid.template.sh     +  the AoC sources (with the patch of CpService.h), the road of C5 and the
+                  grid scenario (artery-ext/grid), the services files of the grid and of the control grid, the sensors,
+                  the exporter, the grid index (src/aoc/analysis/grid.py) and the rule check (src/aoc/analysis/rulecheck.py)
 
 A script holds a copy of each file it needs, so one file is enough on the workstation.
 The sources stay in one place in this repository. After a change of a source file, run
@@ -46,32 +47,32 @@ def build_a7():
 def build_a8():
     template = (TOOLS / "a8_logger.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "A8_FILE_EOF"), template)
-    if n != 11:
-        raise SystemExit(f"a8_logger.template.sh: expected 11 placeholders, found {n}")
+    if n != 12:
+        raise SystemExit(f"a8_logger.template.sh: expected 12 placeholders, found {n}")
     return text
 
 
 def build_c1():
     template = (TOOLS / "c1_link.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C1_FILE_EOF"), template)
-    if n != 17:
-        raise SystemExit(f"c1_link.template.sh: expected 17 placeholders, found {n}")
+    if n != 18:
+        raise SystemExit(f"c1_link.template.sh: expected 18 placeholders, found {n}")
     return text
 
 
 def build_c5():
     template = (TOOLS / "c5_vru.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "C5_FILE_EOF"), template)
-    if n != 21:
-        raise SystemExit(f"c5_vru.template.sh: expected 21 placeholders, found {n}")
+    if n != 22:
+        raise SystemExit(f"c5_vru.template.sh: expected 22 placeholders, found {n}")
     return text
 
 
 def build_d1():
     template = (TOOLS / "d1_grid.template.sh").read_text(encoding="utf-8")
     text, n = re.subn(r"@@FILE:([^@]+)@@", lambda m: embed(m.group(1), "D1_FILE_EOF"), template)
-    if n != 26:
-        raise SystemExit(f"d1_grid.template.sh: expected 26 placeholders, found {n}")
+    if n != 32:
+        raise SystemExit(f"d1_grid.template.sh: expected 32 placeholders, found {n}")
     return text
 
 

@@ -1,0 +1,36 @@
+{
+ "run": {
+  "folder": "sandbox:control_quick/aoc-control_quick-2",
+  "label": "{'density': 'low', 'pen': '100', 'rule': 'aoc'}",
+  "seconds": 50.0,
+  "senders": 19,
+  "cpm_rate_hz": 2.646,
+  "bytes_per_s": 3360.9,
+  "bytes_per_s_without_empty": 3360.9,
+  "objects_per_cpm": 1.14,
+  "cbr_mean": 0.033,
+  "pairs": 52398,
+  "receivers": 19,
+  "receivers_exposed": 17,
+  "time_above_target": 0.9657,
+  "known": 0.966,
+  "time_above_target_receivers": 0.9705
+ },
+ "against": {
+  "folder": "sandbox:control_quick/aoc-control_quick-0",
+  "label": "{'density': 'low', 'pen': '100', 'rule': 'etsi'}",
+  "seconds": 50.0,
+  "senders": 19,
+  "cpm_rate_hz": 6.413,
+  "bytes_per_s": 8373.6,
+  "bytes_per_s_without_empty": 6988.7,
+  "objects_per_cpm": 1.31,
+  "cbr_mean": 0.0503,
+  "pairs": 52398,
+  "receivers": 19,
+  "receivers_exposed": 17,
+  "time_above_target": 0.964,
+  "known": 0.9657,
+  "time_above_target_receivers": 0.9694
+ }
+}
