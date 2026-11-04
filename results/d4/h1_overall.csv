@@ -1,0 +1,5 @@
+against,runs,gain,gain_lo,gain_hi,gain_min,not_worse_share,way_mean,against_mean,b0_error,regime,verdict,not_worse
+B0,360,0.9336,0.9327,0.9345,0.8982,1.0,0.02833,0.43323,0.43323,aged,PASS,PASS
+B1,360,0.7998,0.7977,0.8019,0.7364,1.0,0.02833,0.14032,0.43323,aged,PASS,n/a
+B2,360,0.746,0.7431,0.7488,0.654,1.0,0.02833,0.11075,0.43323,aged,n/a,n/a
+B4,360,0.0998,0.0957,0.1038,-0.1443,0.9694,0.02833,0.03158,0.43323,aged,n/a,n/a

@@ -1,0 +1,4 @@
+cls,runs,rows,points,q_assumed,q_fitted,ll_assumed,ll_fitted,ce_assumed,ce_fitted,half_life_assumed,half_life_fitted,fitted,at_edge
+heavy_truck,72,144868,7093401,1.44,0.877652,-2427400.3,-2362090.2,0.041,0.0092,1.318,1.494,True,False
+passenger_car,72,1184089,58122674,4.0,0.456801,-36021122.1,-25728247.4,0.173,0.0433,0.989,1.728,True,False
+pedestrian,72,123761,6081095,0.5,0.0001,-3615861.6,-2894247.6,0.17,0.0143,1.696,2.476,True,True

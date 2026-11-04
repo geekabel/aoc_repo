@@ -1,0 +1,4 @@
+against,runs,gain,gain_lo,gain_hi,gain_min,ratio,not_worse_share,way_mean,against_mean,awareness_diff,awareness_diff_lo,awareness_diff_hi,awareness_diff_min,verdict
+B0,360,0.7506,0.7484,0.7527,0.6507,0.2421,1.0,0.23975,0.99031,-0.009,-0.0094,-0.0086,-0.0269,PASS
+B1,360,-0.2397,-0.2419,-0.2376,-0.3397,23975.0,0.0,0.23975,1e-05,0.0071,0.0069,0.0074,0.0024,n/a
+B2,360,-0.1752,-0.1762,-0.1742,-0.2038,3.7119,0.0,0.23975,0.06459,0.0073,0.007,0.0077,0.0012,n/a

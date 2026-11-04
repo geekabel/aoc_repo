@@ -18,6 +18,7 @@ Written:
                (D2, command ``aoc-gridcheck``)
   qfit         the motion value q of the reliability curve fitted per class on the calibration runs (D3, command ``aoc-fit-q``)
   gridreplay   the replay of the five ways on every run of the grid, one receiver at a time (D3, command ``aoc-replay-grid``)
+  database     the results database: the tables of D3 per cell with confidence intervals, the tests of H1 and H3 (D4, command ``aoc-database``)
 
-Planned: the results database over the runs (task D4).
+Planned: the figures of the grid (task D5) read the database.
 """
