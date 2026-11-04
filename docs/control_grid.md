@@ -92,6 +92,14 @@ index (`aoc-grid ROOT --design control`) counts the runs per cell and lists the 
 for the core grid, not for these runs). The heavy cells (high, 100, 36 stations) take three to four times the time
 of a cell of the core grid: about 55 to 60 CPU hours in all, 10 to 14 hours with 4 to 6 jobs.
 
+Four runs of `[Config control]` were exported in the sandbox of this session with the final configuration (two of
+330 s at low/25/etsi/0, two of 60 s at high/100/aoc/36 and high/25/aoc2/36): the variables of each run reach the
+export (`rule`, `grule`, `n`, `dev`). The aoc run at high/100/36 shows what the loaded channel does to the rule:
+DCC holds the CPMs at 1.1 Hz per sender, and the look-ahead of the rule (an object is included when its report
+would be too old at the next generation interval) puts almost every object into every CPM (4.9 objects per CPM,
+the moving cars every 0.5 s in the median). The rule then saves on CPMs, not on objects per CPM; E3 reads the
+saving from the bytes per second against the ETSI run of the same cell and seed.
+
 ## What the analysis needs next (E3)
 
 - The receiver's curve with the stopped state (the replay's discount and alignment: a report with a speed under
