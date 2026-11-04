@@ -1,6 +1,6 @@
 # The results database of the core grid (task D4)
 
-360 evaluation runs (36 cells x 10 seeds) replayed with the hold of 5 s; 72 runs with the holds of 2 and 10 s. The calibration runs (seeds 10 and 11) served the fit of q and are left out.
+360 evaluation runs (36 cells x 10 seeds) replayed with the hold of 5 s; 72 runs with the holds of 2 and 10 s. The calibration runs (seeds 10 and 11) served the fit of q and are left out. Every mean below weighs the runs equally (each run one value); the reliability diagram weighs the objects.
 
 ## The motion value q (fitted on the calibration runs)
 
@@ -22,26 +22,28 @@
 
 ## H1: the calibration error of B3 against the other ways (paired by run)
 
-| against | runs | gain of B3 | 95 % interval | runs where B3 is not worse | verdict (at least 30 % against B0 and B1) |
-| --- | --- | --- | --- | --- | --- |
-| B0 | 360 | 93.4 % | [93.3 %, 93.5 %] | 100 % | PASS |
-| B1 | 360 | 80.0 % | [79.8 %, 80.2 %] | 100 % | PASS |
-| B2 | 360 | 74.6 % | [74.3 %, 74.9 %] | 100 % | - |
-| B4 | 360 | 10.0 % | [9.6 %, 10.4 %] | 97 % | - |
+| against | runs | gain of B3 (mean over the runs) | 95 % interval | over the cells: mean, 95 % interval | lowest run | runs where B3 is not worse | verdict (at least 30 % against B0 and B1) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B0 | 360 | 93.4 % | [93.3 %, 93.5 %] | 93.4 % [93.2 %, 93.5 %] | 89.8 % | 100 % | PASS |
+| B1 | 360 | 80.0 % | [79.8 %, 80.2 %] | 80.0 % [79.6 %, 80.4 %] | 73.6 % | 100 % | PASS |
+| B2 | 360 | 74.6 % | [74.3 %, 74.9 %] | 74.6 % [74.0 %, 75.2 %] | 65.4 % | 100 % | n/a |
+| B4 | 360 | 10.0 % | [9.6 %, 10.4 %] | 10.0 % [9.1 %, 10.9 %] | -14.4 % | 97 % | n/a |
 
-Per cell against B0: 36 of 36 cells pass; the smallest gain is 92.3 % (low/10/etsi).
+The interval over the runs treats the 360 runs as one sample; the interval over the cells (the 36 cell means) is the one that respects the design. The verdict reads the lower end of the two-sided 95 % interval of the cell (one-sided at 97.5 %), with no correction for the 36 cells. The rule of the plan applies where objects get old (B0's calibration error at least 0.05: regime aged); where every object is fresh, B3 must not be worse than B0 in every run.
 
-Per cell against B1: 36 of 36 cells pass; the smallest gain is 78.2 % (low/100/10hz).
+Per cell against B0: 36 of 36 cells pass (36 aged, 0 fresh); the smallest gain is 92.3 % (low/10/etsi), its lower end 91.4 %.
+
+Per cell against B1: 36 of 36 cells pass (36 aged, 0 fresh); the smallest gain is 78.2 % (low/100/10hz), its lower end 76.8 %.
 
 ## H3: the stale-confidence rate of B3 against the other ways
 
-| against | B3 | the other | difference (the other minus B3), 95 % interval | runs where B3 is not above | verdict (under B0) |
-| --- | --- | --- | --- | --- | --- |
-| B0 | 0.240 | 0.990 | 0.751 [0.748, 0.753] | 100 % | PASS |
-| B1 | 0.240 | 0.000 | -0.240 [-0.242, -0.238] | 0 % | - |
-| B2 | 0.240 | 0.065 | -0.175 [-0.176, -0.174] | 0 % | - |
+| against | B3 | the other | difference (the other minus B3), 95 % interval | ratio B3 / the other | runs where B3 is not above | awareness, B3 minus the other: mean [95 % interval], lowest run | verdict (under B0 in every run, ratio at most 0.5, awareness within 2 points) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B0 | 0.240 | 0.990 | 0.751 [0.748, 0.753] | 0.242 | 100 % | -0.0090 [-0.0094, -0.0086], -0.0269 | PASS |
+| B1 | 0.240 | 0.000 | -0.240 [-0.242, -0.238] | 23975.000 | 0 % | +0.0071 [+0.0069, +0.0074], +0.0024 | n/a |
+| B2 | 0.240 | 0.065 | -0.175 [-0.176, -0.174] | 3.712 | 0 % | +0.0073 [+0.0070, +0.0077], +0.0012 | n/a |
 
-## The hold (the seeds 0 and 1 of every cell)
+## The hold (the 72 runs of the hold check, the seeds 0 and 1 of every cell, at every hold)
 
 | hold (s) | B0: calibration error, stale rate | B1: calibration error, stale rate | B2: calibration error, stale rate | B3: calibration error, stale rate | B4: calibration error, stale rate |
 | --- | --- | --- | --- | --- | --- |
@@ -63,6 +65,8 @@ Per cell against B1: 36 of 36 cells pass; the smallest gain is 78.2 % (low/100/1
 | 0.7 to 0.8 | 4658694 | 0.761 | 0.631 |
 | 0.8 to 0.9 | 4593095 | 0.857 | 0.715 |
 | 0.9 to 1.0 | 120336676 | 0.990 | 0.970 |
+
+Calibration error pooled over the objects (the diagram above, every way): B0 0.524, B1 0.160, B2 0.127, B3 0.033, B4 0.037.
 
 ## The factors (hold 5 s, B3 and B1)
 
@@ -95,6 +99,6 @@ Per cell against B1: 36 of 36 cells pass; the smallest gain is 78.2 % (low/100/1
 | 10hz | B1 | 0.140 [0.135, 0.145] | 0.831 | 0.000 |
 | 10hz | B3 | 0.029 [0.028, 0.030] | 0.838 | 0.253 |
 
-## The occluded pedestrian (1296 events, B3)
+## The occluded pedestrian (1080 events of the evaluation runs, B3)
 
 Belief in the hidden pedestrian during the gap with V2X: mean 0.990, lowest 0.990; with the own sensors only at the end of the gap: 0.432. CPM rows about the pedestrian received in the gap: 52 on average (34 at 10 % penetration, 74 at 100 %).
