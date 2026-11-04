@@ -63,6 +63,7 @@ Other commands:
 | `aoc-fit-q RESULT_FOLDER [--out qfit.csv]` | Fits the motion value q of the reliability curve per class on the calibration runs of the grid (seeds 10 and 11): the reports moved forward by their age against the truth (D3) |
 | `aoc-replay-grid RESULT_FOLDER --out DIR [--q-from qfit.csv]` | Replays the five ways on every run of the grid, one receiver at a time, from the warm-up on: the metrics per run, way and hold, the reliability diagrams, the belief of the egos in their pedestrian during the occlusion (D3; hours) |
 | `aoc-database [--results results]` | Builds the results database from the tables of D2 and D3 in the repository: per cell with confidence intervals, the tests of H1 and H3, the hold check, the reliability diagrams, the events, a summary (D4; seconds) |
+| `aoc-grid-figures [--results results] [--out figures]` | Draws the figures F2, F5, F7 and F8 of the papers from the database (D5; seconds); `make figures` runs them with the other figure scripts |
 
 ## Typical uses
 
