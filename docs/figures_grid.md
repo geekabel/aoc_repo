@@ -2,7 +2,7 @@
 
 `aoc-grid-figures [--results results] [--out figures] [--only f05]` draws the four figures of the papers that come
 from the core grid. Each one is also a script in `figures/` (`f02_alpha.py`, `f05_calibration.py`,
-`f07_awareness.py`, `f08_stale.py`), run by `make figures`. They read the tables of D3 and D4 in the repository
+`f07_awareness.py`, `f08_stale.py`; `f09_control.py` for the control grid, E3), run by `make figures`. They read the tables of D3 and D4 in the repository
 and need no simulation data; every figure prints the numbers quoted in the text; without the tables the command
 says so and stops without an error.
 
@@ -12,6 +12,7 @@ says so and stops without an error.
 | F5 `f05_calibration.pdf` | the reliability diagram at a hold of 5 s: the share of the fused objects really there against their belief (bins of 0.1), one curve per way B0 to B4, the diagonal of perfect calibration; under it the share of the objects per bin (log scale). B0 has one bin (the belief is 0.99 everywhere): a lone point | `results/d4/reliability.csv` | per way the calibration error pooled over the objects of the 360 evaluation runs (not the mean per run of `cells.csv`), the top bin: its share really there and its share of the objects |
 | F7 `f07_awareness.pdf` | left, the awareness ratio within 200 m against the penetration; right, the calibration error (log scale); one line per way with the 95 % band over the evaluation runs of the level (90 runs, hold 5 s) | `results/d4/runs.csv` | per way and penetration the mean of both, the band and the number of runs |
 | F8 `f08_stale.pdf` | left, the stale-confidence rate against the channel busy ratio of the cell (the mean over the received CPMs); right, the ghost rate; one marker per cell and way with its interval over the 10 seeds (smaller than the marker), the face of the marker giving the penetration of the cell | `results/d4/cells.csv` | per way the mean, the lowest and the highest cell, the largest half-width; the range of the channel busy ratio |
+| F9 `f09_control.pdf` | the control frontier (E3): the time above the target against the load, left the channel busy ratio, right the CPM bytes per second per sender; one marker per cell and rule of the control grid with its interval over the seeds, the colour giving the rule and the marker the load level; the Pareto frontier of each panel dashed | `results/e3/cells.csv` (`aoc-control`) | per rule the mean time above the target, busy ratio and bytes per sender over the cells; the rules on the frontier of each panel |
 
 The style is the one of the other figures of the papers (serif, 8 pt, one column 3.45 in wide, two columns 6.9 in,
 vector PDF with the fonts embedded). The colours of the ways are fixed in `gridfigures.COLORS` (B3 blue, B0 grey,

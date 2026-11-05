@@ -16,7 +16,7 @@ This repository holds what the tasks produce.
 | `src/aoc/analysis/` | Calibration error, real motion of the objects, the metrics of a run for the five ways of the plan, the check of the single-link runs, the age at the receiver and E[alpha] against the law, the check of the occluded-VRU runs, the belief of one vehicle in one object over time and the pilot through the whole pipeline, the cells, the index and the quality check of the core grid, the calibration of q, the replay of the grid and the results database | B5, B8, C1 to C3, C5, C7, D1 to D4 |
 | `artery-ext/` | Logger and lossy CP service for Artery, config files, the single-link scenario, the occluded-VRU scenario, the core grid, scripts for the workstation | A6, A7, A8, C1, C5, D1 |
 | `theory/note/` | Theory note: LaTeX source, PDF, figures and the script that draws them | A5 |
-| `figures/` | One script per figure of the papers: `f02_alpha.py` (F2), `f03_ages.py` (F3), `f04_ealpha.py` (F4), `f05_calibration.py` (F5), `f06_money.py` (F6), `f07_awareness.py` (F7) and `f08_stale.py` (F8) so far | C2, C3, C7, D5, E3 |
+| `figures/` | One script per figure of the papers: `f02_alpha.py` (F2), `f03_ages.py` (F3), `f04_ealpha.py` (F4), `f05_calibration.py` (F5), `f06_money.py` (F6), `f07_awareness.py` (F7), `f08_stale.py` (F8) and `f09_control.py` (F9) so far | C2, C3, C7, D5, E3 |
 | `paper-globecom/`, `paper-mswim/` | The two papers. Empty for now | F1, F6 |
 | `results/` | The small tables brought back from the workstation (the check of the grid, D2; the fit of q and the replay of the grid, D3) and the results database built from them (D4) | D2 to D4 |
 | `tests/` | Tests, with two short simulation logs in `tests/data`; `test_synthetic.py` checks the whole pipeline on streams whose right answer is known | B1, B9 |
@@ -63,9 +63,10 @@ Other commands:
 | `aoc-fit-q RESULT_FOLDER [--out qfit.csv]` | Fits the motion value q of the reliability curve per class on the calibration runs of the grid (seeds 10 and 11): the reports moved forward by their age against the truth (D3) |
 | `aoc-replay-grid RESULT_FOLDER --out DIR [--q-from qfit.csv]` | Replays the five ways on every run of the grid, one receiver at a time, from the warm-up on: the metrics per run, way and hold, the reliability diagrams, the belief of the egos in their pedestrian during the occlusion (D3; hours) |
 | `aoc-database [--results results]` | Builds the results database from the tables of D2 and D3 in the repository: per cell with confidence intervals, the tests of H1 and H3, the hold check, the reliability diagrams, the events, a summary (D4; seconds) |
-| `aoc-grid-figures [--results results] [--out figures]` | Draws the figures F2, F5, F7 and F8 of the papers from the database (D5; seconds); `make figures` runs them with the other figure scripts |
+| `aoc-grid-figures [--results results] [--out figures]` | Draws the figures F2, F5, F7 and F8 of the papers from the database (D5) and F9 from the tables of the control grid (E3; seconds); `make figures` runs them with the other figure scripts |
 | `aoc-grid ROOT --design control` | The same index and check for the control grid of E2 (240 runs, the folders `aoc-control-<n>`) |
 | `aoc-rulecheck RUN_DIR [--against OTHER]` | Checks the AoC generation rule in an exported run (E1): the CPM rate and bytes per sender, the intervals between two reports of an object against the period of the rule, the time the receivers are above the target; the ratios against a second run and the verdict of H4 on the pair (seconds) |
+| `aoc-control ROOT [--out results/e3] [--jobs 4]` | Analyses the control grid (E3): the per-run metrics (cached in `runs.csv`), the pairs of rules by cell and seed, the verdict of H4 per cell and per rule, the points of F9 and the Pareto frontier (seconds per run) |
 
 ## Typical uses
 

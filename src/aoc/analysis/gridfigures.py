@@ -6,6 +6,8 @@
   F7  the awareness ratio and the calibration error against the penetration, one line per way with its confidence band
       over the evaluation runs of the level (``results/d4/runs.csv``)
   F8  the stale-confidence rate against the channel busy ratio, one marker per cell and way (``results/d4/cells.csv``)
+  F9  the control frontier (task E3): the time above the target against the load, one marker per cell and rule of the
+      control grid, with the Pareto frontier (``results/e3/cells.csv``, written by ``aoc-control``)
 
     aoc-grid-figures [--results results] [--out figures] [--only f05]
 
@@ -30,6 +32,9 @@ MARKERS = {"B0": "s", "B1": "^", "B2": "D", "B3": "o", "B4": "v"}
 SHORT = {"B0": "B0 full trust", "B1": "B1 cutoff 1 s", "B2": "B2 Bayesian", "B3": "B3 AoC", "B4": "B4 Dempster rule"}
 CLASS_LABELS = {"passenger_car": "car", "heavy_truck": "truck", "pedestrian": "pedestrian", "cyclist": "cyclist"}
 PEN_FILL = {10: "white", 25: "#d9d9d9", 50: "#8c8c8c", 100: "black"}                   # the face of a marker in F8: the penetration of the cell
+RULE_COLORS = {"etsi": "#7f7f7f", "etsi_abs": "#17becf", "aoc": "#1f77b4", "aoc2": "#2ca02c", "aocdev": "#ff7f0e"}     # F9
+RULE_LABELS = {"etsi": "ETSI (Artery)", "etsi_abs": "ETSI, absolute positions", "aoc": "AoC, n = 1", "aoc2": "AoC, n = 2", "aocdev": "AoC + deviation"}
+LOAD_MARKERS = {0: "o", 12: "s", 36: "^"}                                                 # the marker in F9: the load stations of the cell
 
 
 class NoData(ValueError):
@@ -209,15 +214,66 @@ def f08_stale(results: str, path: str) -> dict:
     return numbers
 
 
+def f09_frontier(results: str, path: str) -> dict:
+    """F9: the time above the target against the load (the busy ratio, and the CPM bytes per sender), one marker per cell and rule
+    of the control grid, with the Pareto frontier of each panel; the markers say the load level, the colours the rule."""
+    from aoc.analysis import control
+    cells = pd.read_csv(os.path.join(results, "e3", "cells.csv"))
+    if not len(cells):
+        raise NoData("cells.csv of the control grid is empty")
+    plt = _style()
+    from matplotlib.lines import Line2D
+    fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.5))
+    numbers = {}
+    rules = [r for r in grid.CONTROL.factors["rule"] if r in set(cells["rule"])]
+    loads = sorted(cells["load"].unique())
+    xlabels = ("channel busy ratio (mean over the received CPMs)", "CPM bytes per second per sender")
+    for ax, (measure, col), xlabel in zip(axes, control.LOAD_MEASURES.items(), xlabels):
+        for rule in rules:
+            c = cells[cells["rule"] == rule]
+            for load in loads:
+                cl = c[c["load"] == load]
+                if cl.empty:
+                    continue
+                yerr = None
+                if cl["time_above_target_lo"].notna().all():
+                    yerr = [cl["time_above_target"] - cl["time_above_target_lo"], cl["time_above_target_hi"] - cl["time_above_target"]]
+                ax.errorbar(cl[col], cl["time_above_target"], yerr=yerr, fmt=LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.4,
+                            mfc=RULE_COLORS.get(rule, "black"), mew=0.6, lw=0.5, capsize=0, alpha=0.9)
+        on = cells[control.frontier(cells, col)].sort_values(col)
+        ax.plot(on[col], on["time_above_target"], "--", color="black", lw=0.7, zorder=0)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("time above the target (share)")
+        ax.grid(alpha=0.25, lw=0.4)
+        counts = on["rule"].value_counts()
+        numbers["frontier_" + measure] = {r: int(counts[r]) for r in rules if r in counts}
+    ymin = float(cells["time_above_target"].min())
+    for ax in axes:
+        ax.set_ylim(max(0.0, ymin - 0.05), 1.0)
+    axes[1].set_xlim(left=0)
+    rule_handles = [Line2D([], [], marker="o", color=RULE_COLORS[r], mfc=RULE_COLORS[r], lw=0, ms=3.4, label=RULE_LABELS.get(r, r)) for r in rules]
+    load_handles = [Line2D([], [], marker=LOAD_MARKERS.get(ld, "o"), color="#444444", mfc="#444444", lw=0, ms=3.4, label="%d stations" % ld) for ld in loads]
+    axes[0].legend(handles=rule_handles, loc="lower right", frameon=False)
+    axes[1].legend(handles=load_handles, title="load", loc="lower right", frameon=False)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    for rule in rules:
+        c = cells[cells["rule"] == rule]
+        numbers[rule] = dict(time_above_target=round(float(c["time_above_target"].mean()), 4), cbr=round(float(c["cbr_mean"].mean()), 4),
+                             bytes_per_sender=round(float(c["bytes_per_sender"].mean()), 1), cells=int(len(c)))
+    return numbers
+
+
 FIGURES = {"f02": ("f02_alpha.pdf", f02_alpha), "f05": ("f05_calibration.pdf", f05_reliability), "f07": ("f07_awareness.pdf", f07_awareness),
-           "f08": ("f08_stale.pdf", f08_stale)}
+           "f08": ("f08_stale.pdf", f08_stale), "f09": ("f09_control.pdf", f09_frontier)}
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Draw the figures of the core grid (F2, F5, F7, F8) from the results database.")
-    ap.add_argument("--results", default="results", help="the results folder with d3/ and d4/ (default: results)")
+    ap = argparse.ArgumentParser(description="Draw the figures of the core grid (F2, F5, F7, F8) and of the control grid (F9) from the results database.")
+    ap.add_argument("--results", default="results", help="the results folder with d3/, d4/ and e3/ (default: results)")
     ap.add_argument("--out", default="figures", help="the folder of the PDF files (default: figures)")
-    ap.add_argument("--only", default=None, help="one figure: f02, f05, f07 or f08")
+    ap.add_argument("--only", default=None, help="one figure: f02, f05, f07, f08 or f09")
     args = ap.parse_args(argv)
     try:
         import matplotlib  # noqa: F401
@@ -229,7 +285,7 @@ def main(argv=None) -> int:
     code = 0
     for key in wanted:
         if key not in FIGURES:
-            print("unknown figure %s (f02, f05, f07, f08)" % key)
+            print("unknown figure %s (f02, f05, f07, f08, f09)" % key)
             return 2
         name, draw = FIGURES[key]
         path = os.path.join(args.out, name)

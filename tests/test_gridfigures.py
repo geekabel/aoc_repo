@@ -59,7 +59,7 @@ def test_the_numbers_of_the_figures(results, tmp_path):
 def test_without_results_nothing_is_drawn(tmp_path, capsys):
     assert gridfigures.main(["--results", str(tmp_path / "nowhere"), "--out", str(tmp_path / "figs")]) == 0
     text = capsys.readouterr().out
-    assert text.count("nothing drawn") == 4 and "written" not in text
+    assert text.count("nothing drawn") == len(gridfigures.FIGURES) and "written" not in text
     assert gridfigures.main(["--only", "f99", "--results", str(tmp_path), "--out", str(tmp_path)]) == 2
 
 

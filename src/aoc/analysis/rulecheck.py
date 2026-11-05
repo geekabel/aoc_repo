@@ -264,7 +264,8 @@ def analyse(folder, rule, warmup, range_m, hold, receivers=None, objects="unequi
     s, r = out["senders"], out["receivers"]
     exposed = r[r["pairs"] >= MIN_EXPOSURE]                               # the receivers with enough object time for a share
     pairs = float(r["pairs"].sum()) if len(r) else 0.0
-    out["summary"] = dict(folder=folder, label=str(tables["info"].get("variables") or tables["info"].get("iteration_vars") or ""), seconds=round(t_end - warmup, 1),
+    out["summary"] = dict(folder=folder, label=str(tables["info"].get("variables") or tables["info"].get("iteration_vars") or ""),
+                          variables=dict(tables["info"].get("variables") or {}), seconds=round(t_end - warmup, 1),
                           senders=int(len(s)), cpm_rate_hz=round(float(s["cpm_rate_hz"].mean()), 3) if len(s) else np.nan,
                           bytes_per_s=round(float(s["bytes_per_s"].sum()), 1) if len(s) else np.nan,
                           bytes_per_s_without_empty=round(float(s["bytes_per_s_without_empty"].sum()), 1) if len(s) else np.nan,
