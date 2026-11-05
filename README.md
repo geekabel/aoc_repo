@@ -66,7 +66,7 @@ Other commands:
 | `aoc-grid-figures [--results results] [--out figures]` | Draws the figures F2, F5, F7 and F8 of the papers from the database (D5) and F9 from the tables of the control grid (E3; seconds); `make figures` runs them with the other figure scripts |
 | `aoc-grid ROOT --design control` | The same index and check for the control grid of E2 (240 runs, the folders `aoc-control-<n>`) |
 | `aoc-rulecheck RUN_DIR [--against OTHER]` | Checks the AoC generation rule in an exported run (E1): the CPM rate and bytes per sender, the intervals between two reports of an object against the period of the rule, the time the receivers are above the target; the ratios against a second run and the verdict of H4 on the pair (seconds) |
-| `aoc-control ROOT [--out results/e3] [--jobs 4]` | Analyses the control grid (E3): the per-run metrics (cached in `runs.csv`), the pairs of rules by cell and seed, the verdict of H4 per cell and per rule, the points of F9 and the Pareto frontier (seconds per run) |
+| `aoc-control ROOT [--out results/e3] [--jobs 4]` | Analyses the control grid (E3): the per-run metrics (cached in `runs.csv`), the pairs of rules by condition and seed, the verdict of H4 per condition and per rule (with paired intervals and pooled tests), the points of F9 and the Pareto frontier (seconds per run) |
 
 ## Typical uses
 

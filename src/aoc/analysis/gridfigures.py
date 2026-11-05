@@ -6,8 +6,9 @@
   F7  the awareness ratio and the calibration error against the penetration, one line per way with its confidence band
       over the evaluation runs of the level (``results/d4/runs.csv``)
   F8  the stale-confidence rate against the channel busy ratio, one marker per cell and way (``results/d4/cells.csv``)
-  F9  the control frontier (task E3): the time above the target against the load, one marker per cell and rule of the
-      control grid, with the Pareto frontier (``results/e3/cells.csv``, written by ``aoc-control``)
+  F9  the control frontier (task E3): the time above the target against the load, one marker per condition and rule
+      of the control grid with the Pareto frontier of each load level, and the paired effect against ETSI with the
+      region of H4 (``results/e3/cells.csv`` and ``cell_pairs.csv``, written by ``aoc-control``)
 
     aoc-grid-figures [--results results] [--out figures] [--only f05]
 
@@ -215,53 +216,88 @@ def f08_stale(results: str, path: str) -> dict:
 
 
 def f09_frontier(results: str, path: str) -> dict:
-    """F9: the time above the target against the load (the busy ratio, and the CPM bytes per sender), one marker per cell and rule
-    of the control grid, with the Pareto frontier of each panel; the markers say the load level, the colours the rule."""
+    """F9: the time above the target against the load, one marker per condition and rule of the control grid (left the busy ratio, middle
+    the CPM bytes per sender-second), with the Pareto frontier of each load level dashed; right, the paired effect against ETSI (the load
+    ratio and the time difference of the same condition and seed, averaged over the seeds) with the region of H4 shaded. The colours say
+    the rule (the ETSI rules hollow), the markers the load level."""
     from aoc.analysis import control
     cells = pd.read_csv(os.path.join(results, "e3", "cells.csv"))
     if not len(cells):
         raise NoData("cells.csv of the control grid is empty")
+    pairs_path = os.path.join(results, "e3", "cell_pairs.csv")
+    cell_pairs = pd.read_csv(pairs_path) if os.path.isfile(pairs_path) else pd.DataFrame()
     plt = _style()
     from matplotlib.lines import Line2D
-    fig, axes = plt.subplots(1, 2, figsize=(6.9, 2.5))
+    from matplotlib.patches import Polygon
+    fig, axes = plt.subplots(1, 3, figsize=(6.9, 2.6))
     numbers = {}
     rules = [r for r in grid.CONTROL.factors["rule"] if r in set(cells["rule"])]
     loads = sorted(cells["load"].unique())
-    xlabels = ("channel busy ratio (mean over the received CPMs)", "CPM bytes per second per sender")
-    for ax, (measure, col), xlabel in zip(axes, control.LOAD_MEASURES.items(), xlabels):
+    hollow = {"etsi", "etsi_abs"}
+
+    def face(rule):
+        return "white" if rule in hollow else RULE_COLORS.get(rule, "black")
+
+    xlabels = ("channel busy ratio", "CPM bytes per sender-second")
+    for ax, (measure, col), xlabel in zip(axes[:2], control.LOAD_MEASURES.items(), xlabels):
+        for load in loads:                                                          # the frontier within the load level
+            part = cells[cells["load"] == load]
+            on = part[control.frontier(part, col)].sort_values(col)
+            ax.plot(on[col], on["time_above_target"], "--", color="#444444", lw=0.6, zorder=0)
+            numbers["frontier_%s_load_%d" % (measure, load)] = {r: int(k) for r, k in on["rule"].value_counts().items()}
         for rule in rules:
             c = cells[cells["rule"] == rule]
             for load in loads:
                 cl = c[c["load"] == load]
                 if cl.empty:
                     continue
-                yerr = None
-                if cl["time_above_target_lo"].notna().all():
-                    yerr = [cl["time_above_target"] - cl["time_above_target_lo"], cl["time_above_target_hi"] - cl["time_above_target"]]
-                ax.errorbar(cl[col], cl["time_above_target"], yerr=yerr, fmt=LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.4,
-                            mfc=RULE_COLORS.get(rule, "black"), mew=0.6, lw=0.5, capsize=0, alpha=0.9)
-        on = cells[control.frontier(cells, col)].sort_values(col)
-        ax.plot(on[col], on["time_above_target"], "--", color="black", lw=0.7, zorder=0)
+                ax.plot(cl[col], cl["time_above_target"], LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.6, mfc=face(rule),
+                        mew=0.8, lw=0, alpha=0.95)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("time above the target (share)")
+        ax.set_xlim(left=0)
         ax.grid(alpha=0.25, lw=0.4)
-        counts = on["rule"].value_counts()
-        numbers["frontier_" + measure] = {r: int(counts[r]) for r in rules if r in counts}
+    axes[0].set_ylabel("time above the target (share)")
     ymin = float(cells["time_above_target"].min())
-    for ax in axes:
+    for ax in axes[:2]:
         ax.set_ylim(max(0.0, ymin - 0.05), 1.0)
-    axes[1].set_xlim(left=0)
-    rule_handles = [Line2D([], [], marker="o", color=RULE_COLORS[r], mfc=RULE_COLORS[r], lw=0, ms=3.4, label=RULE_LABELS.get(r, r)) for r in rules]
-    load_handles = [Line2D([], [], marker=LOAD_MARKERS.get(ld, "o"), color="#444444", mfc="#444444", lw=0, ms=3.4, label="%d stations" % ld) for ld in loads]
-    axes[0].legend(handles=rule_handles, loc="lower right", frameon=False)
-    axes[1].legend(handles=load_handles, title="load", loc="lower right", frameon=False)
-    fig.tight_layout()
+    # the paired effect against etsi: x the load ratio on the condition's load side, y the time difference
+    ax = axes[2]
+    cp = cell_pairs[cell_pairs["reference"] == "etsi"] if len(cell_pairs) else cell_pairs
+    if len(cp):
+        ylo = min(float(cp["time_diff"].min()) - 0.01, -0.03)
+        yhi = max(float(cp["time_diff"].max()) + 0.01, 0.03)
+        xhi = max(float(cp["load_ratio"].max()) * 1.05, 1.1)
+        t, less = control.TOLERANCE, control.LOAD_LESS                           # the region of H4: less load and the time held, or more time at equal load
+        ax.add_patch(Polygon([(0, -t), (less, -t), (less, t), (1 + t, t), (1 + t, yhi), (0, yhi)], closed=True, color="#2ca02c", alpha=0.12, lw=0))
+        ax.axhline(0, color="#bbbbbb", lw=0.5)
+        ax.axvline(1, color="#bbbbbb", lw=0.5)
+        for rule in rules:
+            for load in loads:
+                part = cp[(cp["rule"] == rule) & (cp["load"] == load)]
+                if part.empty:
+                    continue
+                ax.plot(part["load_ratio"], part["time_diff"], LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.6, mfc=face(rule),
+                        mew=0.8, lw=0, alpha=0.95)
+        ax.set_xlim(0, xhi)
+        ax.set_ylim(ylo, yhi)
+        for rule in rules:
+            part = cp[cp["rule"] == rule]
+            if len(part):
+                numbers["pair_" + rule] = dict(load_ratio=round(float(part["load_ratio"].mean()), 3), time_diff=round(float(part["time_diff"].mean()), 4),
+                                               conditions_pass=int((part["verdict"] == "PASS").sum()), conditions=int(len(part)))
+    ax.set_xlabel("load against ETSI (ratio)")
+    ax.set_ylabel("time above the target against ETSI (difference)", fontsize=7)
+    ax.grid(alpha=0.25, lw=0.4)
+    rule_handles = [Line2D([], [], marker="o", color=RULE_COLORS[r], mfc=face(r), mew=0.8, lw=0, ms=3.6, label=RULE_LABELS.get(r, r)) for r in rules]
+    load_handles = [Line2D([], [], marker=LOAD_MARKERS.get(ld, "o"), color="#444444", mfc="#444444", lw=0, ms=3.6, label="%d load stations" % ld) for ld in loads]
+    fig.legend(handles=rule_handles + load_handles, loc="lower center", ncol=4, frameon=False, columnspacing=1.2, handletextpad=0.4)
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
     fig.savefig(path)
     plt.close(fig)
     for rule in rules:
         c = cells[cells["rule"] == rule]
         numbers[rule] = dict(time_above_target=round(float(c["time_above_target"].mean()), 4), cbr=round(float(c["cbr_mean"].mean()), 4),
-                             bytes_per_sender=round(float(c["bytes_per_sender"].mean()), 1), cells=int(len(c)))
+                             bytes_per_sender=round(float(c["bytes_per_sender"].mean()), 1), conditions=int(len(c)))
     return numbers
 
 
