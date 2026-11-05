@@ -303,3 +303,28 @@ def test_f09_draws_from_the_cells(tmp_path):
     pd.DataFrame(columns=cells.columns).to_csv(tmp_path / "e3" / "cells.csv", index=False)
     with pytest.raises(gridfigures.NoData):
         gridfigures.f09_frontier(str(tmp_path), str(tmp_path / "f09.pdf"))
+
+
+@pytest.mark.skipif(not (ROOT / "results" / "e3" / "sandbox" / "runs.csv").is_file(), reason="the sandbox tables are not there")
+def test_the_sandbox_tables_of_e3():
+    """The 30 runs of seed 0 of the low-density conditions, run in the sandbox of the session: the tables of the repository come from
+    the runs table, and say what docs/control_analysis.md quotes."""
+    runs = pd.read_csv(ROOT / "results" / "e3" / "sandbox" / "runs.csv")
+    assert len(runs) == 32 and set(runs["density"]) == {"low"}
+    pairs = control.pairs(runs)
+    cp = control.cell_pairs(pairs)
+    kept = pd.read_csv(ROOT / "results" / "e3" / "sandbox" / "cell_pairs.csv", keep_default_na=False, na_values=[""])   # "n/a" is a verdict
+    pd.testing.assert_frame_equal(cp.reset_index(drop=True), kept, check_dtype=False, check_exact=False, atol=1e-6)
+    against = cp[cp["reference"] == "etsi"].set_index(["density", "pen", "load", "rule"])
+    aoc_free = against.loc[("low", 25, 0, "aoc")]
+    assert aoc_free["verdict"] == "PASS" and 0.55 < aoc_free["load_ratio"] < 0.65 and abs(aoc_free["time_diff"]) < 0.01
+    assert against.loc[("low", 25, 12, "aoc"), "load_ratio"] < 0.5 and against.loc[("low", 25, 12, "aoc"), "verdict"] == "PASS"
+    assert against.loc[("low", 25, 36, "aoc"), "time_diff"] < -0.04 and against.loc[("low", 25, 36, "aoc"), "verdict"] == "FAIL"   # the saturated channel
+    assert against.loc[("low", 100, 36, "aoc2"), "time_diff"] > -0.02                                                              # n = 2 holds the time
+    h4 = control.h4_table(cp, pairs).set_index(["rule", "reference"])
+    assert h4.loc[("aoc", "etsi"), "h4"] == "incomplete (6/12)" and h4.loc[("aoc", "etsi"), "pass_load_0"] == "2/2"
+    assert h4.loc[("aoc", "etsi"), "pass_load_36"] == "0/2"
+    cells = control.cells(runs)
+    assert set(cells["seeds"]) == {1} and len(cells) == 30
+    etsi = runs[(runs["rule"] == "etsi") & (runs["seed"] == 0)]
+    assert (etsi["cpm_rate_hz"].round(1) == 10.0).sum() == 4 and etsi["cpm_rate_hz"].min() < 2.5          # 10 Hz, 2 Hz under DCC at 36 stations

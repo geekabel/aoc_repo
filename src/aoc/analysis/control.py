@@ -237,7 +237,7 @@ def balanced(runs: pd.DataFrame, log=None) -> pd.DataFrame:
         inside = part["seed"].isin(seeds or set())
         keep.append(part[inside])
         if (~inside).any():
-            dropped.append("%s/%s/%s: seeds %s" % (cond + (sorted(part.loc[~inside, "seed"].unique()),)))
+            dropped.append("%s/%s/%s: seeds %s" % (cond + (sorted(int(s) for s in part.loc[~inside, "seed"].unique()),)))
     if dropped and log:
         log("runs left out of the means, their seed is not run for every rule of the condition: " + "; ".join(dropped))
     return pd.concat(keep, ignore_index=True) if keep else runs.iloc[0:0]

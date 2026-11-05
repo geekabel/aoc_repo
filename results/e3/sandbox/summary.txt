@@ -1,0 +1,61 @@
+the control grid: density (low, high) x pen (25, 100) x rule (etsi, etsi_abs, aoc, aoc2, aocdev) x load (0, 12, 36) x 4 seeds: 240 runs
+runs read: 32 of 240; conditions (density/pen/load) with at least one run: 6 of 12; seeds per condition and rule in the means: 1 to 1
+the metric: the share of the time an object without V2X within 200 m is known with alpha(age) >= 0.9 (pooled over the object ticks)
+the load: the busy ratio (mean over the received CPMs of a receiver, then over the receivers) and the CPM bytes per sender-second
+
+per rule, the mean over the conditions (and the range over the conditions):
+  etsi      time above target 0.877 (0.735 to 0.944), known 0.935, CBR 0.250 (0.030 to 0.506), bytes per sender-second 533 (296 to 666), CPM rate 7.34 Hz
+  etsi_abs  time above target 0.880 (0.738 to 0.944), known 0.937, CBR 0.247 (0.025 to 0.506), bytes per sender-second 506 (304 to 610), CPM rate 5.43 Hz
+  aoc       time above target 0.859 (0.685 to 0.942), known 0.933, CBR 0.241 (0.018 to 0.505), bytes per sender-second 262 (204 to 290), CPM rate 3.47 Hz
+  aoc2      time above target 0.877 (0.733 to 0.945), known 0.933, CBR 0.246 (0.023 to 0.507), bytes per sender-second 425 (278 to 501), CPM rate 4.86 Hz
+  aocdev    time above target 0.871 (0.737 to 0.942), known 0.932, CBR 0.242 (0.019 to 0.506), bytes per sender-second 286 (220 to 320), CPM rate 3.69 Hz
+
+H4 per rule and reference (a condition passes when its mean pair over the seeds passes; the load side is the busy ratio at load 0, the CPM bytes per sender-second at load 12 and 36; p_less_load and p_time_held: one-sided Wilcoxon over the seed pairs, the load at most 80 % and the time within one point):
+      rule reference  conditions  conditions_expected  conditions_pass  conditions_pass_ci pass_load_0 pass_load_12 pass_load_36  load_ratio_mean  load_ratio_max  time_diff_mean  time_diff_min  seed_pairs  seed_pairs_pass  p_less_load  p_time_held                h4
+  etsi_abs      etsi           6                   12                1                   0         0/2          1/2          0/2            0.925           1.028          0.0026        -0.0002           6                1       1.0000       0.0156 incomplete (6/12)
+       aoc      etsi           6                   12                4                   0         2/2          2/2          0/2            0.571           0.721         -0.0179        -0.0664           6                4       0.0156       0.5781 incomplete (6/12)
+      aoc2      etsi           6                   12                4                   0         2/2          2/2          0/2            0.820           0.939         -0.0001        -0.0150           6                4       0.5781       0.0312 incomplete (6/12)
+    aocdev      etsi           6                   12                5                   0         2/2          2/2          1/2            0.610           0.742         -0.0057        -0.0387           6                5       0.0156       0.2188 incomplete (6/12)
+      etsi  etsi_abs           6                   12                0                   0         0/2          0/2          0/2            1.081           1.212         -0.0026        -0.0115           6                0       1.0000       0.0312 incomplete (6/12)
+       aoc  etsi_abs           6                   12                4                   0         2/2          2/2          0/2            0.617           0.727         -0.0205        -0.0663           6                4       0.0156       0.5781 incomplete (6/12)
+      aoc2  etsi_abs           6                   12                0                   0         0/2          0/2          0/2            0.886           0.926         -0.0028        -0.0149           6                0       1.0000       0.0469 incomplete (6/12)
+    aocdev  etsi_abs           6                   12                5                   0         2/2          2/2          1/2            0.660           0.767         -0.0083        -0.0386           6                5       0.0156       0.2188 incomplete (6/12)
+
+conditions that do not pass:
+  low/25/0, etsi_abs against etsi: load ratio 0.825 (cbr), time above target +0.0002 (seed pairs passing: 0 of 1)
+  low/25/36, etsi_abs against etsi: load ratio 0.993 (bytes), time above target +0.0030 (seed pairs passing: 0 of 1)
+  low/25/36, aoc against etsi: load ratio 0.659 (bytes), time above target -0.0502 (seed pairs passing: 0 of 1)
+  low/25/36, aoc2 against etsi: load ratio 0.915 (bytes), time above target -0.0021 (seed pairs passing: 0 of 1)
+  low/100/0, etsi_abs against etsi: load ratio 0.855 (cbr), time above target -0.0002 (seed pairs passing: 0 of 1)
+  low/100/12, etsi_abs against etsi: load ratio 0.966 (bytes), time above target +0.0014 (seed pairs passing: 0 of 1)
+  low/100/36, etsi_abs against etsi: load ratio 1.028 (bytes), time above target -0.0001 (seed pairs passing: 0 of 1)
+  low/100/36, aoc against etsi: load ratio 0.721 (bytes), time above target -0.0664 (seed pairs passing: 0 of 1)
+  low/100/36, aoc2 against etsi: load ratio 0.939 (bytes), time above target -0.0150 (seed pairs passing: 0 of 1)
+  low/100/36, aocdev against etsi: load ratio 0.742 (bytes), time above target -0.0387 (seed pairs passing: 0 of 1)
+  low/25/0, etsi against etsi_abs: load ratio 1.212 (cbr), time above target -0.0002 (seed pairs passing: 0 of 1)
+  low/25/12, etsi against etsi_abs: load ratio 1.107 (bytes), time above target -0.0115 (seed pairs passing: 0 of 1)
+  low/25/36, etsi against etsi_abs: load ratio 1.007 (bytes), time above target -0.0030 (seed pairs passing: 0 of 1)
+  low/25/36, aoc against etsi_abs: load ratio 0.664 (bytes), time above target -0.0532 (seed pairs passing: 0 of 1)
+  low/25/0, aoc2 against etsi_abs: load ratio 0.926 (cbr), time above target +0.0001 (seed pairs passing: 0 of 1)
+  low/25/12, aoc2 against etsi_abs: load ratio 0.833 (bytes), time above target +0.0029 (seed pairs passing: 0 of 1)
+  low/25/36, aoc2 against etsi_abs: load ratio 0.922 (bytes), time above target -0.0051 (seed pairs passing: 0 of 1)
+  low/100/0, etsi against etsi_abs: load ratio 1.169 (cbr), time above target +0.0002 (seed pairs passing: 0 of 1)
+  low/100/12, etsi against etsi_abs: load ratio 1.035 (bytes), time above target -0.0014 (seed pairs passing: 0 of 1)
+  low/100/36, etsi against etsi_abs: load ratio 0.972 (bytes), time above target +0.0001 (seed pairs passing: 0 of 1)
+  low/100/36, aoc against etsi_abs: load ratio 0.702 (bytes), time above target -0.0663 (seed pairs passing: 0 of 1)
+  low/100/0, aoc2 against etsi_abs: load ratio 0.916 (cbr), time above target +0.0013 (seed pairs passing: 0 of 1)
+  low/100/12, aoc2 against etsi_abs: load ratio 0.813 (bytes), time above target -0.0008 (seed pairs passing: 0 of 1)
+  low/100/36, aoc2 against etsi_abs: load ratio 0.913 (bytes), time above target -0.0149 (seed pairs passing: 0 of 1)
+  low/100/36, aocdev against etsi_abs: load ratio 0.722 (bytes), time above target -0.0386 (seed pairs passing: 0 of 1)
+
+the frontier (the points no other point beats on both the load and the time above the target):
+  cbr, all: 4 point(s): aoc 2, aoc2 2
+  cbr, load 0: 4 point(s): aoc 2, aoc2 2
+  cbr, load 12: 3 point(s): aoc 2, aoc2 1
+  cbr, load 36: 5 point(s): etsi 1, etsi_abs 1, aoc 2, aocdev 1
+  cbr, within each condition (the five rules at the same conditions, 6 condition(s)): on the frontier in: etsi 1, etsi_abs 1, aoc 6, aoc2 3, aocdev 1
+  bytes, all: 7 point(s): aoc 4, aoc2 2, aocdev 1
+  bytes, load 0: 3 point(s): aoc 2, aoc2 1
+  bytes, load 12: 1 point(s): aoc 1
+  bytes, load 36: 5 point(s): etsi 1, aoc 2, aoc2 1, aocdev 1
+  bytes, within each condition (the five rules at the same conditions, 6 condition(s)): on the frontier in: etsi 1, etsi_abs 1, aoc 6, aoc2 4, aocdev 2

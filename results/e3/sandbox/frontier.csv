@@ -1,0 +1,59 @@
+measure,scope,density,pen,rule,load,x,time_above_target
+cbr,all,low,25,aoc,0,0.0178,0.8767
+cbr,all,low,25,aoc2,0,0.0227,0.8799
+cbr,all,low,100,aoc,0,0.0367,0.9423
+cbr,all,low,100,aoc2,0,0.0471,0.9452
+cbr,load 0,low,25,aoc,0,0.0178,0.8767
+cbr,load 0,low,25,aoc2,0,0.0227,0.8799
+cbr,load 0,low,100,aoc,0,0.0367,0.9423
+cbr,load 0,low,100,aoc2,0,0.0471,0.9452
+cbr,load 12,low,25,aoc,12,0.1855,0.8757
+cbr,load 12,low,25,aoc2,12,0.1895,0.8784
+cbr,load 12,low,100,aoc,12,0.2037,0.9403
+cbr,load 36,low,25,aoc,36,0.4967,0.6852
+cbr,load 36,low,25,aocdev,36,0.4975,0.7367
+cbr,load 36,low,25,etsi_abs,36,0.4981,0.7384
+cbr,load 36,low,100,aoc,36,0.5049,0.835
+cbr,load 36,low,100,etsi,36,0.5056,0.9014
+cbr,condition low/25/0,low,25,aoc,0,0.0178,0.8767
+cbr,condition low/25/0,low,25,aoc2,0,0.0227,0.8799
+cbr,condition low/25/12,low,25,aoc,12,0.1855,0.8757
+cbr,condition low/25/12,low,25,aoc2,12,0.1895,0.8784
+cbr,condition low/25/36,low,25,aoc,36,0.4967,0.6852
+cbr,condition low/25/36,low,25,aocdev,36,0.4975,0.7367
+cbr,condition low/25/36,low,25,etsi_abs,36,0.4981,0.7384
+cbr,condition low/100/0,low,100,aoc,0,0.0367,0.9423
+cbr,condition low/100/0,low,100,aoc2,0,0.0471,0.9452
+cbr,condition low/100/12,low,100,aoc,12,0.2037,0.9403
+cbr,condition low/100/36,low,100,aoc,36,0.5049,0.835
+cbr,condition low/100/36,low,100,etsi,36,0.5056,0.9014
+bytes,all,low,25,aoc,36,204.0,0.6852
+bytes,all,low,100,aoc,36,213.4,0.835
+bytes,all,low,100,aocdev,36,219.5,0.8627
+bytes,all,low,100,aoc2,36,277.8,0.8864
+bytes,all,low,100,aoc,12,287.4,0.9403
+bytes,all,low,100,aoc,0,290.1,0.9423
+bytes,all,low,100,aoc2,0,492.6,0.9452
+bytes,load 0,low,25,aoc,0,289.3,0.8767
+bytes,load 0,low,100,aoc,0,290.1,0.9423
+bytes,load 0,low,100,aoc2,0,492.6,0.9452
+bytes,load 12,low,100,aoc,12,287.4,0.9403
+bytes,load 36,low,25,aoc,36,204.0,0.6852
+bytes,load 36,low,100,aoc,36,213.4,0.835
+bytes,load 36,low,100,aocdev,36,219.5,0.8627
+bytes,load 36,low,100,aoc2,36,277.8,0.8864
+bytes,load 36,low,100,etsi,36,295.8,0.9014
+bytes,condition low/25/0,low,25,aoc,0,289.3,0.8767
+bytes,condition low/25/0,low,25,aoc2,0,499.1,0.8799
+bytes,condition low/25/12,low,25,aoc,12,290.2,0.8757
+bytes,condition low/25/12,low,25,aoc2,12,501.1,0.8784
+bytes,condition low/25/36,low,25,aoc,36,204.0,0.6852
+bytes,condition low/25/36,low,25,aocdev,36,220.4,0.7367
+bytes,condition low/25/36,low,25,etsi_abs,36,307.3,0.7384
+bytes,condition low/100/0,low,100,aoc,0,290.1,0.9423
+bytes,condition low/100/0,low,100,aoc2,0,492.6,0.9452
+bytes,condition low/100/12,low,100,aoc,12,287.4,0.9403
+bytes,condition low/100/36,low,100,aoc,36,213.4,0.835
+bytes,condition low/100/36,low,100,aocdev,36,219.5,0.8627
+bytes,condition low/100/36,low,100,aoc2,36,277.8,0.8864
+bytes,condition low/100/36,low,100,etsi,36,295.8,0.9014
