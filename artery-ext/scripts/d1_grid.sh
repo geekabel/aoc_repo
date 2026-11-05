@@ -27,8 +27,16 @@
 #   bash d1_grid.sh --quick                  one run of 60 s (low, 100, etsi), to check the chain
 #   bash d1_grid.sh --control-quick          three runs of 60 s (low, 100) with the generation rules etsi, etsi_abs and aoc
 #                                            of AocCpService (task E1), then the check of the rule against the ETSI runs
+#   bash d1_grid.sh --control-load           four runs of 60 s (high, 100, etsi) with 0, 12, 24 and 36 load stations: the busy
+#                                            ratio each level gives (task E2)
+#   bash d1_grid.sh --control                the 240 runs of the control grid that are not done yet (task E2; hours)
+#   bash d1_grid.sh --control --runs 3,17-20 these run numbers of the control grid
+#   bash d1_grid.sh --control --seeds 0,1    the runs of the seeds 0 and 1 of every cell (120 runs): a first pass over the whole
+#                                            design, before the seeds 2 and 3
+#   bash d1_grid.sh --control --check [DIR]  index the results folder of the control grid again
 #   bash d1_grid.sh --cell low 100 etsi      the 12 runs of one cell
 #   bash d1_grid.sh --runs 3,17-20,41        these run numbers (ranges allowed)
+#   bash d1_grid.sh --seeds 0-5              the runs of these seeds of every cell
 #   bash d1_grid.sh --check [DIR]            index the results folder again (default: the grid folder)
 #   bash d1_grid.sh --help
 #
@@ -95,6 +103,8 @@ CMAKE_FILE="$ARTERY_DIR/scenarios/CMakeLists.txt"
 LIB="$BUILD_DIR/scenarios/aoc/libartery_aoc.so"
 CONFIG="grid"
 N_RUNS=432
+DESIGN="grid"                                     # grid, or control (task E2): the run numbers and the index
+SCENARIO="$D1_DIR/d1_make_scenario.py"
 
 if [ -t 1 ]; then G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
 else G=""; R=""; Y=""; N=""; fi
@@ -162,9 +172,9 @@ write_sources() {
     mkdir -p "$EXT_DIR" || return 1
     put_file "$EXT_DIR/CMakeLists.txt" <<'D1_FILE_EOF' || return 1
 # AoC extension of Artery: a logger for collective perception experiments (A8)
-# and a CP service with a controlled loss of received CPMs (C1).
+# a CP service with the AoC generation rule (E1) and a controlled loss of received CPMs (C1), a source of channel load (E2).
 # Added to the build by one line in scenarios/CMakeLists.txt: add_subdirectory(aoc)
-add_artery_feature(aoc AocLogger.cc AocCpService.cc)
+add_artery_feature(aoc AocLogger.cc AocCpService.cc AocLoadService.cc)
 target_link_libraries(aoc PUBLIC envmod)
 D1_FILE_EOF
     put_file "$EXT_DIR/AocLogger.ned" <<'D1_FILE_EOF' || return 1
@@ -463,7 +473,17 @@ void AocLogger::initialize()
     run << "run_id," << cfg->substituteVariables("${runid}") << '\n';
     run << "repetition," << cfg->substituteVariables("${repetition}") << '\n';
     run << "seed_set," << cfg->substituteVariables("${seedset}") << '\n';
-    run << "iteration_vars,\"" << cfg->substituteVariables("${iterationvars}") << "\"\n";
+    {   // a CSV field: a quote inside the value is doubled
+        std::string vars = cfg->substituteVariables("${iterationvars}");
+        std::string quoted;
+        for (char c : vars) {
+            if (c == '"') {
+                quoted += '"';
+            }
+            quoted += c;
+        }
+        run << "iteration_vars,\"" << quoted << "\"\n";
+    }
     run << "network," << getSystemModule()->getNedTypeName() << '\n';
     run.close();
 
@@ -1480,6 +1500,177 @@ bool AocCpService::checkPerceivedObjectTrigger(const SimTime& T_now)
 
 }  // namespace artery
 D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.ned" <<'D1_FILE_EOF' || return 1
+//
+// AocLoadService: a source of channel load (task E2 of the AoC plan). Every station that runs it broadcasts
+// packets of a fixed size at a fixed rate, single hop, with the lowest priority (DP3), through the same stack as
+// the CAMs and the CPMs (so the DCC of the station throttles them too). The packets carry nothing and nobody
+// reads them: they stand for the other applications and the other stations that load the channel. With rate = 0
+// the service sends nothing. The first packet goes out at a random time in the first period, so the stations do
+// not send together; the following ones every period, with a jitter of jitterShare of the period.
+//
+import artery.application.ItsG5Service;
+
+simple AocLoadService like ItsG5Service
+{
+    parameters:
+        @class(artery::AocLoadService);
+        double rate @unit(Hz) = default(0Hz);        // packets per second per station; 0 sends nothing
+        int size @unit(byte) = default(300byte);     // the size of a packet (a CPM with a few objects is 150 to 400 bytes)
+        double jitterShare = default(0.1);           // the period varies by this share, uniformly, so the stations stay apart
+}
+D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.h" <<'D1_FILE_EOF' || return 1
+/*
+ * AocLoadService: a source of channel load (task E2 of the AoC plan). Licensed under GPLv2 like Artery.
+ */
+#ifndef AOC_LOAD_SERVICE_H_
+#define AOC_LOAD_SERVICE_H_
+
+#include "artery/application/ItsG5Service.h"
+#include "artery/application/NetworkInterface.h"
+
+#include <omnetpp/cmessage.h>
+
+namespace artery
+{
+
+class AocLoadService : public ItsG5Service
+{
+public:
+    ~AocLoadService();
+    void indicate(const vanetza::btp::DataIndication&, omnetpp::cPacket*, const NetworkInterface&) override;
+    void trigger() override;
+
+protected:
+    void initialize() override;
+    void finish() override;
+    void handleMessage(omnetpp::cMessage*) override;
+
+private:
+    void sendOne();
+    void scheduleNext(bool first);
+
+    omnetpp::cMessage* mTimer = nullptr;
+    double mRate = 0.0;        // packets per second
+    long mSize = 300;          // bytes
+    double mJitter = 0.1;      // share of the period
+    unsigned long mSent = 0;
+    unsigned long mReceived = 0;
+};
+
+}  // namespace artery
+
+#endif /* AOC_LOAD_SERVICE_H_ */
+D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.cc" <<'D1_FILE_EOF' || return 1
+/*
+ * AocLoadService: a source of channel load (task E2 of the AoC plan). Licensed under GPLv2 like Artery.
+ *
+ * Packets of a fixed size at a fixed rate, single hop broadcast, DP3, through the same stack as the CAMs and the
+ * CPMs. They carry nothing; the receivers count and drop them. See AocLoadService.ned.
+ */
+#include "AocLoadService.h"
+
+#include "artery/application/MultiChannelPolicy.h"
+#include "artery/application/NetworkInterfaceTable.h"
+
+#include <omnetpp/cexception.h>
+#include <omnetpp/cpacket.h>
+#include <vanetza/btp/data_request.hpp>
+#include <vanetza/dcc/profile.hpp>
+#include <vanetza/geonet/interface.hpp>
+
+using namespace omnetpp;
+using namespace vanetza;
+
+namespace artery
+{
+
+Define_Module(AocLoadService)
+
+static const ItsAid scLoadItsAid = 16481;   // an ITS-AID reserved for testing, next to the one of Artery's example service
+
+AocLoadService::~AocLoadService()
+{
+    cancelAndDelete(mTimer);
+}
+
+void AocLoadService::initialize()
+{
+    ItsG5Service::initialize();
+    mRate = par("rate");
+    mSize = par("size");
+    mJitter = par("jitterShare");
+    if (mRate < 0.0 || mSize < 1 || mJitter < 0.0 || mJitter >= 1.0) {
+        throw cRuntimeError("AocLoadService: rate must not be negative, size at least 1 byte, jitterShare between 0 and 1 (excluded)");
+    }
+    mTimer = new cMessage("AocLoad");
+    if (mRate > 0.0) {
+        scheduleNext(true);
+    }
+}
+
+void AocLoadService::finish()
+{
+    recordScalar("aocLoadSent", mSent);
+    recordScalar("aocLoadReceived", mReceived);
+    ItsG5Service::finish();
+}
+
+void AocLoadService::scheduleNext(bool first)
+{
+    const double period = 1.0 / mRate;
+    const double wait = first ? uniform(0.0, period) : period * uniform(1.0 - mJitter, 1.0 + mJitter);
+    scheduleAt(simTime() + wait, mTimer);
+}
+
+void AocLoadService::handleMessage(cMessage* msg)
+{
+    Enter_Method("handleMessage");
+    if (msg == mTimer) {
+        sendOne();
+        scheduleNext(false);
+    }
+}
+
+void AocLoadService::trigger()
+{
+    // the timer does the sending; nothing to do at the update of the middleware
+}
+
+void AocLoadService::sendOne()
+{
+    auto& mco = getFacilities().get_const<MultiChannelPolicy>();
+    auto& networks = getFacilities().get_const<NetworkInterfaceTable>();
+    for (auto channel : mco.allChannels(scLoadItsAid)) {
+        auto network = networks.select(channel);
+        if (!network) {
+            EV_ERROR << "AocLoadService: no network interface for channel " << channel << "\n";
+            continue;
+        }
+        btp::DataRequestB req;
+        req.destination_port = host_cast(getPortNumber(channel));
+        req.gn.transport_type = geonet::TransportType::SHB;
+        req.gn.traffic_class.tc_id(static_cast<unsigned>(dcc::Profile::DP3));
+        req.gn.communication_profile = geonet::CommunicationProfile::ITS_G5;
+        req.gn.its_aid = scLoadItsAid;
+        cPacket* packet = new cPacket("AocLoad");
+        packet->setByteLength(mSize);
+        request(req, packet, network.get());
+        ++mSent;
+    }
+}
+
+void AocLoadService::indicate(const btp::DataIndication&, cPacket* packet, const NetworkInterface&)
+{
+    Enter_Method("indicate");
+    ++mReceived;
+    delete packet;
+}
+
+}  // namespace artery
+D1_FILE_EOF
     put_file "$EXT_DIR/cpservice-protected.patch" <<'D1_FILE_EOF' || return 1
 diff --git a/src/artery/envmod/service/CpService.h b/src/artery/envmod/service/CpService.h
 index b0c695f..25c5899 100644
@@ -1534,7 +1725,9 @@ write_scenario() {
 # Configurations:
 #   grid           3 x 4 x 3 x 12 = 432 runs of 330 s
 #   grid_quick     one run of 60 s (low, 100, etsi), to check the chain
+#   control        2 x 2 x 5 x 3 x 4 = 240 runs of 330 s: the control grid (task E2), see the configuration control
 #   control_quick  three runs of 60 s (low, 100): the generation rules etsi, etsi_abs and aoc of AocCpService (task E1)
+#   control_load   four runs of 60 s (high, 100, etsi): the channel load levels 0, 12, 24 and 36 load stations
 #
 # Run with the AoC library loaded (d1_grid.sh does it, one process per run number):
 #   python3 tools/run_artery.py -l build/run-artery.ini -s scenarios/aoc-grid -- -u Cmdenv -c grid -r 0
@@ -1597,6 +1790,19 @@ num-rngs = 2
 *.node[*].environmentModel.Lidar.fovAngle = 360
 *.node[*].environmentModel.Lidar.numSegments = 36
 
+# the load stations of the control grid (task E2): static stations that only run the load source, without DCC; none in the
+# configurations of the core grid (load_0.xml)
+*.staticNodes.nodes = xmldoc("load_0.xml")
+*.rsu*.middleware.datetime = "2013-06-01 12:35:00"
+*.rsu*.middleware.services = xmldoc("services-load.xml")
+*.rsu*.middleware.LOAD.rate = 25Hz
+*.rsu*.middleware.LOAD.size = 300byte
+*.rsu*.vanetza[*].dcc.typename = "NoRateControlDccEntity"
+*.rsu*.wlan[*].typename = "VanetNic"
+*.rsu*.wlan[*].radio.channelNumber = 180
+*.rsu*.wlan[*].radio.carrierFrequency = 5.9 GHz
+*.rsu*.wlan[*].radio.transmitter.power = 200 mW
+
 # the logger
 *.aocLogger.enabled = true
 *.aocLogger.logChannelLoad = true
@@ -1625,19 +1831,56 @@ sim-time-limit = 60s
 *.node[*].middleware.CP.minInterval = 0.1s
 *.node[*].middleware.CP.maxInterval = 1s
 
+[Config control]
+description = "control grid: density x penetration x generation rule x channel load, 4 seeds"
+# the order of the four lines sets the order of the runs: density outermost, then penetration, rule, load, the repetition
+# innermost (run = (((d * 2 + p) * 5 + r) * 3 + l) * 4 + repetition). A car has V2X (CA and CP) or nothing: the equipped
+# cars are drawn in the route file (control_<density>_p<pen>, the flows eq_*).
+#   rule   etsi (CpService of Artery), etsi_abs (the rules of ETSI on the absolute position, a CPM only when due),
+#          aoc (the AoC rule, n = 1), aoc2 (n = 2), aocdev (n = 1 with the deviation trigger at half the tolerance)
+#   load   the load stations around the junction (load_<n>.xml): none, 12, 36; each one sends 25 packets of 300 bytes
+#          per second, DP3, without DCC. An iteration value is never quoted: OMNeT++ keeps the quotes in ${iterationvars},
+#          which the logger writes to run.csv
+*.traci.launcher.sumocfg = "control_${density=low,high}_p${pen=25,100}.sumo.cfg"
+*.node[*].middleware.services = xmldoc("services-control.xml")
+*.aocLogger.label = "${rule=etsi,etsi_abs,aoc,aoc2,aocdev}-${load=0,12,36}"
+*.node[*].middleware.CP.generationRule = "${grule=etsi,etsi_abs,aoc,aoc,aoc ! rule}"
+*.node[*].middleware.CP.repeats = ${n=1,1,1,2,1 ! rule}
+*.node[*].middleware.CP.deviationFraction = ${dev=0,0,0,0,0.5 ! rule}
+*.node[*].middleware.CP.objectInclusionConfig = 1
+*.node[*].middleware.CP.withDccRestriction = true
+*.node[*].middleware.CP.minInterval = 0.1s
+*.node[*].middleware.CP.maxInterval = 1s
+*.staticNodes.nodes = xmldoc("load_${load}.xml")
+repeat = 4
+
 [Config control_quick]
 description = "the generation rules etsi, etsi_abs and aoc: one short run each (low, 100), to check the chain of E1"
 # run 0: the rules of ETSI as CpService applies them; run 1: the same with the position change on the absolute position;
-# run 2: the AoC rule with its default parameters (AocCpService.ned: target 0.9, the fitted q of D3, n = 1)
+# run 2: the AoC rule with its default parameters (AocCpService.ned: target 0.9, the fitted q of D3, n = 1). No load station.
 sim-time-limit = 60s
-*.traci.launcher.sumocfg = "grid_${density=low}.sumo.cfg"
-*.node[*].middleware.services = xmldoc("services-control-${pen=100}.xml")
+*.traci.launcher.sumocfg = "control_${density=low}_p${pen=100}.sumo.cfg"
+*.node[*].middleware.services = xmldoc("services-control.xml")
 *.aocLogger.label = "${rule=etsi,etsi_abs,aoc}"
 *.node[*].middleware.CP.generationRule = "${rule}"
 *.node[*].middleware.CP.objectInclusionConfig = 1
 *.node[*].middleware.CP.withDccRestriction = true
 *.node[*].middleware.CP.minInterval = 0.1s
 *.node[*].middleware.CP.maxInterval = 1s
+*.staticNodes.nodes = xmldoc("load_0.xml")
+
+[Config control_load]
+description = "the load stations: one short run per load level (high, 100, etsi), to see the busy ratio each level gives"
+sim-time-limit = 60s
+*.traci.launcher.sumocfg = "control_${density=high}_p${pen=100}.sumo.cfg"
+*.node[*].middleware.services = xmldoc("services-control.xml")
+*.aocLogger.label = "${rule=etsi}-${load=0,12,24,36}"
+*.node[*].middleware.CP.generationRule = "etsi"
+*.node[*].middleware.CP.objectInclusionConfig = 1
+*.node[*].middleware.CP.withDccRestriction = true
+*.node[*].middleware.CP.minInterval = 0.1s
+*.node[*].middleware.CP.maxInterval = 1s
+*.staticNodes.nodes = xmldoc("load_${load}.xml")
 D1_FILE_EOF
     put_file "$GRID_DIR/vru.nod.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1696,255 +1939,6 @@ D1_FILE_EOF
     <poly id="building_alley_N" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629614 6.900674,47.629614 6.900674,47.629892 6.900115,47.629892 6.900115,47.629614"/>
     <poly id="building_alley_S" type="building" color="0.7,0.7,0.7" fill="true" layer="-1" geo="true" shape="6.900115,47.629578 6.900674,47.629578 6.900674,47.629308 6.900115,47.629308 6.900115,47.629578"/>
 </additional>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density low: 250 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.06944)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density medium: 450 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.12500)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.rou.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<!-- Core grid of the plan (task D1), density high: 700 vehicles per hour on each of the north, east and west approaches,
-     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
-     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
-<routes>
-    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
-    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
-           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
-    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
-           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
-    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
-
-    <route id="northbound" edges="S0S1 S1C CN0"/>
-    <route id="southbound" edges="N0C CS1 S1S0"/>
-
-    <!-- the background traffic: one route distribution per approach with a flow -->
-    <routeDistribution id="from_N">
-        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
-        <route id="N_W" edges="N0C CW0" probability="0.2"/>
-        <route id="N_E" edges="N0C CE0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_E">
-        <route id="E_W" edges="E0C CW0" probability="0.6"/>
-        <route id="E_N" edges="E0C CN0" probability="0.2"/>
-        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
-    </routeDistribution>
-    <routeDistribution id="from_W">
-        <route id="W_E" edges="W0C CE0" probability="0.6"/>
-        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
-        <route id="W_N" edges="W0C CN0" probability="0.2"/>
-    </routeDistribution>
-
-    <!-- the events of C5 and the background flows, sorted by departure -->
-    <flow id="bg_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <flow id="bg_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <flow id="bg_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
-    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
-    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
-    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
-    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
-    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
-</routes>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_low.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_medium.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.sumo.cfg" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
-<configuration>
-    <input>
-        <net-file value="vru.net.xml"/>
-        <route-files value="grid_high.rou.xml"/>
-        <additional-files value="vru.poly.xml"/>
-    </input>
-    <time>
-        <begin value="0"/>
-        <step-length value="0.1"/>
-    </time>
-    <processing>
-        <collision.action value="warn"/>
-        <time-to-teleport value="-1"/>
-        <pedestrian.model value="striping"/>
-    </processing>
-    <report>
-        <verbose value="false"/>
-        <no-step-log value="true"/>
-    </report>
-</configuration>
 D1_FILE_EOF
     put_file "$GRID_DIR/services-grid-10.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2015,75 +2009,302 @@ D1_FILE_EOF
 	</service>
 </services>
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-10.xml" <<'D1_FILE_EOF' || return 1
+    put_file "$GRID_DIR/services-control.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Control grid (tasks E1 and E2), penetration 10%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
-     0.10, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
-     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
-     take part in the draw. -->
+<!-- Control grid (tasks E1 and E2): a car has V2X or nothing. The cars of the flows eq_* (drawn in the route file at the
+     share of the penetration) and the actors of the events (the egos and the helpers) run CA and CP (the CP service of the
+     AoC extension, the generation rule set in omnetpp.ini); the cars of the flows bg_*, the truck and the pedestrians have
+     no station: they are the objects collective perception serves. The channel load comes from the load stations
+     (services-load.xml). -->
 <services>
 	<service type="artery.application.CaService" name="CA">
 		<listener port="2001" />
+		<filters>
+			<name pattern="eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+" />
+		</filters>
 	</service>
 	<service type="AocCpService" name="CP">
 		<listener port="2009" />
-		<filters operator="or">
-			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
-			<penetration rate="0.10" />
+		<filters>
+			<name pattern="eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+" />
 		</filters>
 	</service>
 </services>
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-25.xml" <<'D1_FILE_EOF' || return 1
+    put_file "$GRID_DIR/services-load.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Control grid (tasks E1 and E2), penetration 25%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
-     0.25, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
-     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
-     take part in the draw. -->
+<!-- Control grid (task E2): the load stations run the load source of the AoC extension only (AocLoadService: packets of
+     300 bytes at the rate set in omnetpp.ini, single hop, DP3), without DCC (NoRateControlDccEntity in omnetpp.ini: the
+     other stations do not back off). They stand for the other applications and the other stations that load the channel. -->
 <services>
-	<service type="artery.application.CaService" name="CA">
-		<listener port="2001" />
-	</service>
-	<service type="AocCpService" name="CP">
-		<listener port="2009" />
-		<filters operator="or">
-			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
-			<penetration rate="0.25" />
-		</filters>
+	<service type="AocLoadService" name="LOAD">
+		<listener port="2010" />
 	</service>
 </services>
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-50.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Control grid (tasks E1 and E2), penetration 50%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA (Day-1 equipment, as in C5); a car runs CP with the probability
-     0.50, drawn once with the random numbers of the car; the egos and the helpers of the events always run CP. The share of
-     cars that send CPMs is the penetration. The name filter matches the whole SUMO id; the truck and the background cars
-     take part in the draw. -->
-<services>
-	<service type="artery.application.CaService" name="CA">
-		<listener port="2001" />
-	</service>
-	<service type="AocCpService" name="CP">
-		<listener port="2009" />
-		<filters operator="or">
-			<name pattern="ego_[0-9]+|helper_[abc]_[0-9]+" />
-			<penetration rate="0.50" />
-		</filters>
-	</service>
-</services>
+    # the route files and the SUMO configurations of the core grid (6 files) and of the control grid (8 files) and the load
+    # stations (4 files) come from the generator of the scenario (it writes a file only when its content changes)
+    put_file "$SCENARIO" <<'D1_FILE_EOF' || return 1
+#!/usr/bin/env python3
+"""Writes the SUMO route files and configurations of the core grid (task D1, experiment E3 of the plan).
+
+The road is the one of the occluded-VRU scenario (make_vru_scenario.py): the same intersection, buildings and
+alley. On top of it, this script writes one route file per traffic density, with:
+
+  - background traffic on the north, east and west approaches, random arrivals (Poisson) at the density's rate,
+    turning straight (60%), right (20%) or left (20%), a speed deviation of 10%, and SUMO's lane-change model.
+    The south approach, where the event takes place, carries the event vehicles only: so the event has the same
+    geometry at every density and seed, and the density acts through the channel load and the number of
+    witnesses (the cars that leave the junction southbound pass the pedestrian like the helpers do). With
+    background cars on the south approach too, cars ahead of the ego stop at the zebra crossing for the
+    pedestrian and the ego queues behind them (8 to 10 s late at 150 veh/h already, no arrival at 600);
+  - the scripted event of C5, three times per run: a truck that comes and stops on the right lane of the south
+    leg before the zebra crossing for 50 s, a pedestrian who comes out of the alley and crosses while the
+    truck stands there, an ego car on the left lane, three helper cars. Each event keeps the timing of C5 and
+    starts at the start of a light cycle (90 s, north-south green from 0 to 42 s), like C5 did: at 90, 180 and
+    270 s (the first after the warm-up of 60 s), so the pedestrian comes out at 106.6, 196.6 and 286.6 s and
+    the run lasts 330 s. The helpers come from the north during the green and pass the pedestrian while it
+    crosses; with the events at another phase of the cycle, they stood at the red north of the junction and
+    missed it. The ego reaches the crossing 5.2 s after the pedestrian is out (checked with SUMO alone over the
+    three densities and the seeds 0 to 11), stops there for the pedestrian, and enters the junction during the
+    green. The helpers a and c are inserted at 40 m on the north approach, inside the background flow: their
+    insertion waits for a free spot, and the southbound cars stop beside them at the crossing, so their arrival
+    (14 to 16 s after the pedestrian is out in free traffic, up to 3 s later at the high density) and their view
+    of the pedestrian vary with the northern flow. The ego's approach is the same in every run.
+
+The densities, in vehicles per hour per approach (three approaches): low 250, medium 450, high 700: about
+15, 25 and 40 cars on the map after the warm-up. Checked with SUMO alone over seeds 0 to 5: the count is
+stable over the run up to 700 (at 800 and above the junction saturates and the queues grow to the end). SUMO
+draws the arrivals and the speed deviations from its own seed, which the OMNeT++ configuration sets from the
+repetition, so every seed has its own traffic.
+
+The control grid (task E2) uses the same road, events and densities, with the equipped cars drawn in the route
+file: on each approach two flows, ``eq_<leg>`` at the share of the penetration and ``bg_<leg>`` at the rest (the
+sum is the density; the superposition of two Poisson flows is a Poisson flow). The services file of the control
+grid gives the CA and CP services to the ``eq_`` cars and the actors of the events by name, so that a car has V2X
+(CAM and CPM together) or nothing: the ``bg_`` cars, the truck and the pedestrian are the objects collective
+perception serves. One route file per density and penetration: ``control_<density>_p<pen>.rou.xml``.
+
+The channel load of the control grid comes from load stations: static stations around the junction that only run
+the load source of the extension (``AocLoadService``, no DCC on them: the other stations do not back off). The
+files ``load_<n>.xml`` place ``n`` of them (Artery's ``StaticNodeManager``) on a grid of 80 m around the junction, the
+closest first; ``load_0.xml`` places none. The equipped cars themselves are held by their DCC: at 10 Hz CAMs and the
+CPMs they cannot add much (the check of Nov 4, 2026: 25 packets per second asked from each car raised the busy
+ratio from 0.12 to 0.15 only).
+
+    python3 artery-ext/tools/make_grid_scenario.py            writes the files into artery-ext/grid
+    python3 artery-ext/tools/make_grid_scenario.py --check    writes nothing, fails if a file is out of date
+
+Needs only the Python standard library.
+"""
+from __future__ import annotations
+
+import argparse
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+OUT = ROOT / "artery-ext" / "grid"
+
+DENSITIES = {"low": 250.0, "medium": 450.0, "high": 700.0}     # vehicles per hour per approach, three approaches (about 15, 25 and 40 cars)
+PENETRATIONS = (25, 100)                                           # the control grid: the share of the cars with V2X, drawn in the route file
+CONTROL_DENSITIES = ("low", "high")                                # the control grid runs two of the three densities
+LOAD_STATIONS = (0, 12, 24, 36)                                   # the control grid: the load stations around the junction
+LOAD_GRID = 6                                                      # the stations stand on a 6 x 6 grid ...
+LOAD_SPACING = 80.0                                                # ... with 80 m between them, centred on the junction
+CENTRE = (300.42, 299.50)                                          # the junction C of the road (vru.net.xml)
+CYCLE = 90.0                                                      # the light cycle of the junction (s), north-south green first
+STARTS = (CYCLE, 2 * CYCLE, 3 * CYCLE)                            # the events start at the start of a cycle, like C5 at 0 s
+EVENTS = tuple(t + 16.6 for t in STARTS)                          # the pedestrian comes out of the alley at these times (s)
+DURATION = 330.0
+TURNS = (("N", 0.6), ("R", 0.2), ("L", 0.2))                     # straight, right, left
+
+# the legs: approach edges to the centre and exit edges from it, in the order north, east, south, west
+LEGS = {
+    "N": {"in": "N0C", "out": "CN0", "straight": "S", "right": "W", "left": "E"},
+    "E": {"in": "E0C", "out": "CE0", "straight": "W", "right": "N", "left": "S"},
+    "S": {"in": "S1C", "out": "CS1", "straight": "N", "right": "E", "left": "W"},
+    "W": {"in": "W0C", "out": "CW0", "straight": "E", "right": "S", "left": "N"},
+}
+# the south leg is in two edges because of the zebra crossing at S1
+APPROACH = {"N": "N0C", "E": "E0C", "S": "S0S1 S1C", "W": "W0C"}
+EXIT = {"N": "CN0", "E": "CE0", "S": "CS1 S1S0", "W": "CW0"}
+
+
+def route_edges(frm: str, to: str) -> str:
+    return APPROACH[frm] + " " + EXIT[to]
+
+
+def header(density: str, rate: float, pen: int | None = None) -> str:
+    if pen is None:
+        what = "<!-- Core grid of the plan (task D1), density %s: %.0f vehicles per hour on each of the north, east and west approaches," % (density, rate)
+    else:
+        what = ("<!-- Control grid of the plan (task E2), density %s, penetration %d %%: %.0f vehicles per hour on each of the north, east and west "
+                "approaches, %.0f of them with V2X (the flows eq_*) and %.0f without (bg_*)," % (density, pen, rate, rate * pen / 100.0, rate * (100 - pen) / 100.0))
+    return "\n".join([
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
+        what,
+        "     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;",
+        "     the event of C5 three times (started at %s s, the pedestrian out of the alley 16.6 s later). -->" % ", ".join("%.0f" % t for t in STARTS),
+        "<routes>",
+        '    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"',
+        '           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>',
+        '    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"',
+        '           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>',
+        '    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"',
+        '           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>',
+        '    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>',
+        "",
+        '    <route id="northbound" edges="S0S1 S1C CN0"/>',
+        '    <route id="southbound" edges="N0C CS1 S1S0"/>',
+    ])
+
+
+FLOW_LEGS = ("N", "E", "W")                                       # the south approach carries the event vehicles only
+
+
+def distributions() -> list:
+    lines = ["", "    <!-- the background traffic: one route distribution per approach with a flow -->"]
+    for leg, info in LEGS.items():
+        if leg not in FLOW_LEGS:
+            continue
+        lines.append('    <routeDistribution id="from_%s">' % leg)
+        for turn, share in TURNS:
+            to = info["straight"] if turn == "N" else (info["right"] if turn == "R" else info["left"])
+            lines.append('        <route id="%s_%s" edges="%s" probability="%.1f"/>' % (leg, to, route_edges(leg, to), share))
+        lines.append("    </routeDistribution>")
+    return lines
+
+
+def event_vehicles(k: int, t: float) -> list:
+    """The actors of one event, from the timing of C5 (the pedestrian out of the alley at t)."""
+    tag = "_%d" % k
+    car = '    <vehicle id="%s%s" type="car" route="%s" depart="%.1f" departLane="2" departPos="%.1f" departSpeed="13.89"/>'
+    return [
+        (t - 45.0, '    <vehicle id="truck%s" type="truck" route="northbound" depart="%.1f" departLane="1" departPos="0.0" departSpeed="13.89">'
+                   '<stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>' % (tag, t - 45.0)),
+        (t - 16.6, '    <person id="ped%s" type="ped" depart="%.1f" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>' % (tag, t - 16.6)),
+        (t - 16.6, car % ("helper_a", tag, "southbound", t - 16.6, 40.0)),
+        (t - 16.1, car % ("helper_b", tag, "northbound", t - 16.1, 90.0)),
+        (t - 13.1, car % ("ego", tag, "northbound", t - 13.1, 0.0)),
+        (t - 11.6, car % ("helper_c", tag, "southbound", t - 11.6, 40.0)),
+    ]
+
+
+def flows(rate: float, pen: int | None = None) -> list:
+    """The background flows, random arrivals at the rate of the density on each of the north, east and west approaches,
+    from time 0 to the end. With a penetration, two flows per approach: the cars with V2X (eq_, the share of the
+    penetration) and the cars without (bg_, the rest); a flow with a rate of 0 is left out."""
+    parts = [("bg", rate)] if pen is None else [("eq", rate * pen / 100.0), ("bg", rate * (100 - pen) / 100.0)]
+    lines = []
+    for leg in FLOW_LEGS:
+        for kind, part in parts:
+            if part <= 0.0:
+                continue
+            lines.append((0.0, '    <flow id="%s_%s" type="flow" route="from_%s" begin="0" end="%.0f" period="exp(%.5f)" departLane="best" departSpeed="max"/>'
+                          % (kind, leg, leg, DURATION, part / 3600.0)))
+    return lines
+
+
+def routes_xml(density: str, pen: int | None = None) -> str:
+    rate = DENSITIES[density]
+    items = flows(rate, pen)
+    for k, t in enumerate(EVENTS, start=1):
+        items.extend(event_vehicles(k, t))
+    items.sort(key=lambda item: item[0])                       # SUMO wants the file sorted by departure
+    lines = [header(density, rate, pen)] + distributions() + ["", "    <!-- the events of C5 and the background flows, sorted by departure -->"]
+    lines += [text for _, text in items]
+    lines.append("</routes>")
+    return "\n".join(lines) + "\n"
+
+
+def sumocfg_xml(name: str) -> str:
+    return "\n".join([
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
+        "<configuration>",
+        "    <input>",
+        '        <net-file value="vru.net.xml"/>',
+        '        <route-files value="%s.rou.xml"/>' % name,
+        '        <additional-files value="vru.poly.xml"/>',
+        "    </input>",
+        "    <time>",
+        '        <begin value="0"/>',
+        '        <step-length value="0.1"/>',
+        "    </time>",
+        "    <processing>",
+        '        <collision.action value="warn"/>',
+        '        <time-to-teleport value="-1"/>',
+        '        <pedestrian.model value="striping"/>',
+        "    </processing>",
+        "    <report>",
+        '        <verbose value="false"/>',
+        '        <no-step-log value="true"/>',
+        "    </report>",
+        "</configuration>",
+    ]) + "\n"
+
+
+def load_stations_xml(n: int) -> str:
+    """The n load stations closest to the junction on the grid (the file of Artery's StaticNodeManager)."""
+    half = (LOAD_GRID - 1) / 2.0
+    points = []
+    for i in range(LOAD_GRID):
+        for j in range(LOAD_GRID):
+            x, y = CENTRE[0] + (i - half) * LOAD_SPACING, CENTRE[1] + (j - half) * LOAD_SPACING
+            points.append(((x - CENTRE[0]) ** 2 + (y - CENTRE[1]) ** 2, i, j, x, y))
+    points.sort()
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
+             "<!-- Control grid of the plan (task E2): %d load stations around the junction, on a grid of %.0f m, the closest first. -->" % (n, LOAD_SPACING),
+             "<nodes>"]
+    for _, i, j, x, y in points[:n]:
+        lines.append('    <rsu id="load_%d_%d" positionX="%.2f" positionY="%.2f"/>' % (i, j, x, y))
+    lines.append("</nodes>")
+    return "\n".join(lines) + "\n"
+
+
+def files() -> dict:
+    out = {}
+    for n in LOAD_STATIONS:
+        out["load_%d.xml" % n] = load_stations_xml(n)
+    for density in DENSITIES:
+        out["grid_%s.rou.xml" % density] = routes_xml(density)
+        out["grid_%s.sumo.cfg" % density] = sumocfg_xml("grid_%s" % density)
+        for pen in (PENETRATIONS if density in CONTROL_DENSITIES else ()):
+            name = "control_%s_p%d" % (density, pen)
+            out[name + ".rou.xml"] = routes_xml(density, pen)
+            out[name + ".sumo.cfg"] = sumocfg_xml(name)
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Write the SUMO route files and configurations of the core grid and of the control grid.")
+    ap.add_argument("--check", action="store_true", help="write nothing; exit with 1 if a file is out of date")
+    ap.add_argument("--out", default=str(OUT), help="output folder (default: artery-ext/grid)")
+    args = ap.parse_args(argv)
+    out = pathlib.Path(args.out)
+    stale = []
+    for name, text in files().items():
+        path = out / name
+        if args.check:
+            if not path.exists() or path.read_text(encoding="utf-8") != text:
+                stale.append(name)
+        else:
+            out.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            print("written:", path)
+    if stale:
+        print("out of date:", ", ".join(stale), "- run: python3 artery-ext/tools/make_grid_scenario.py")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-100.xml" <<'D1_FILE_EOF' || return 1
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Control grid (tasks E1 and E2), penetration 100%: the CP service of the AoC extension (AocCpService, the generation rule set in omnetpp.ini); otherwise as the core grid: every car runs CA and CP, the truck of the events included (no filter). -->
-<services>
-	<service type="artery.application.CaService" name="CA">
-		<listener port="2001" />
-	</service>
-	<service type="AocCpService" name="CP">
-		<listener port="2009" />
-	</service>
-</services>
-D1_FILE_EOF
+    python3 "$SCENARIO" --out "$GRID_DIR" > /dev/null || return 1
     put_file "$GRID_DIR/sensors-vru.xml" <<'D1_FILE_EOF' || return 1
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
@@ -2273,7 +2494,7 @@ def iteration_variables(text):
         part = part.strip().lstrip("$")
         if "=" in part:
             name, value = part.split("=", 1)
-            out[name.strip()] = value.strip()
+            out[name.strip()] = value.strip().strip('"')         # OMNeT++ keeps the quotes of a quoted iteration value
     return out
 
 
@@ -2840,7 +3061,7 @@ def inclusions_table(obj, rule, warmup, tx=None):
 def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, objects="unequipped"):
     """Per receiver: the share of the time an object within range is known with alpha at or above the target."""
     truth, rx, obj = tables["truth"], tables["cpm_rx"], tables["cpm_obj"]
-    stations = set(tables["nodes"]["node_id"].astype(str)) if objects == "unequipped" else set()
+    stations = set(tables["nodes"]["node_id"].dropna().astype(str)) if objects == "unequipped" else set()
     reports = rx.merge(obj[["station_id", "reference_time_ms", "gt_match_id", "t_meas", "speed_cms", "class"]], on=["station_id", "reference_time_ms"], how="inner")
     reports = reports[reports["gt_match_id"].notna()]
     columns = ["rx_id", "pairs", "known", "time_above_target", "cbr_mean"]
@@ -3025,6 +3246,11 @@ writes one row per run (the cell, the seed, the rows, the receivers, the sizes, 
 that the cell read from the run's variables is the one its run number says, counts the runs of each cell and lists
 the missing run numbers, ready for ``d1_grid.sh --runs``. The exit code is 0 when the 432 runs are there and
 exported, 1 otherwise.
+
+The control grid of task E2 (configuration ``control``, ``aoc-grid ROOT --design control``) is a second design of the
+same kind: density (low, high) x pen (25, 100) x rule (etsi, etsi_abs, aoc, aoc2, aocdev) x load (0, 12, 36 load stations
+around the junction) x 4 seeds, 240 runs, every seed an evaluation run; run = (((d * 2 + p) * 5 + r) * 3 + l) * 4 + seed.
+A ``Design`` holds the factors in the order of the run numbers; the functions take one (the core grid by default).
 """
 from __future__ import annotations
 
@@ -3046,62 +3272,123 @@ N_RUNS = len(DENSITIES) * len(PENETRATIONS) * len(MESSAGES) * REPETITIONS
 CONFIG = "grid"
 
 
+class Design:
+    """A full factorial design run by OMNeT++: the factors in the order of the iteration lines (the first outermost),
+    the repetitions innermost, the name of the configuration, and the seeds that are calibration runs."""
+
+    def __init__(self, config: str, factors: dict, repetitions: int, cal_seeds=()):
+        self.config = config
+        self.factors = {name: tuple(levels) for name, levels in factors.items()}
+        self.names = tuple(self.factors)
+        self.repetitions = int(repetitions)
+        self.cal_seeds = tuple(cal_seeds)
+        self.eval_seeds = tuple(s for s in range(self.repetitions) if s not in self.cal_seeds)
+        self.n_cells = 1
+        for levels in self.factors.values():
+            self.n_cells *= len(levels)
+        self.n_runs = self.n_cells * self.repetitions
+
+    def run_number(self, seed: int, **levels) -> int:
+        """The OMNeT++ run number of a cell (one level per factor, by name) and a seed."""
+        if not 0 <= int(seed) < self.repetitions:
+            raise ValueError("the seed must be between 0 and %d" % (self.repetitions - 1))
+        number = 0
+        for name in self.names:
+            number = number * len(self.factors[name]) + self.factors[name].index(self._cast(name, levels[name]))
+        return number * self.repetitions + int(seed)
+
+    def cell_of_run(self, number: int) -> dict:
+        """The cell and the seed of a run number, with the kind of the run (evaluation or calibration)."""
+        if not 0 <= int(number) < self.n_runs:
+            raise ValueError("the run number must be between 0 and %d" % (self.n_runs - 1))
+        seed = int(number) % self.repetitions
+        rest = int(number) // self.repetitions
+        cell = {}
+        for name in reversed(self.names):
+            cell[name] = self.factors[name][rest % len(self.factors[name])]
+            rest //= len(self.factors[name])
+        out = {name: cell[name] for name in self.names}
+        out.update(seed=seed, kind="calibration" if seed in self.cal_seeds else "evaluation")
+        return out
+
+    def _cast(self, name: str, value):
+        return type(self.factors[name][0])(value)
+
+    def cell_from_variables(self, variables: dict) -> dict | None:
+        """The cell written by the exporter from the iteration variables of the run (None when one is missing or unknown)."""
+        cell = {}
+        for name in self.names:
+            try:
+                cell[name] = self._cast(name, variables[name])
+            except (KeyError, ValueError, TypeError):
+                return None
+            if cell[name] not in self.factors[name]:
+                return None
+        return cell
+
+    def cell_runs(self, **levels) -> list[int]:
+        """The run numbers of a cell, one per seed."""
+        return [self.run_number(seed, **levels) for seed in range(self.repetitions)]
+
+    def seed_runs(self, seeds) -> list[int]:
+        """The run numbers of the given seeds in every cell."""
+        wanted = {int(s) for s in seeds}
+        return [n for n in range(self.n_runs) if n % self.repetitions in wanted]
+
+    def runs_table(self) -> pd.DataFrame:
+        """Every run: run number, cell, seed, kind."""
+        return pd.DataFrame([dict(run=n, **self.cell_of_run(n)) for n in range(self.n_runs)])
+
+    def describe(self) -> str:
+        return " x ".join("%s (%s)" % (name, ", ".join(str(v) for v in levels)) for name, levels in self.factors.items()) + \
+            " x %d seeds: %d runs" % (self.repetitions, self.n_runs)
+
+
+GRID = Design("grid", {"density": DENSITIES, "pen": PENETRATIONS, "msg": MESSAGES}, REPETITIONS, CAL_SEEDS)
+CONTROL = Design("control", {"density": ("low", "high"), "pen": (25, 100), "rule": ("etsi", "etsi_abs", "aoc", "aoc2", "aocdev"), "load": (0, 12, 36)}, 4)
+DESIGNS = {"grid": GRID, "control": CONTROL}
+
+
 def run_number(density: str, pen: int, msg: str, seed: int) -> int:
-    """The OMNeT++ run number of a cell and a seed."""
-    d, p, m = DENSITIES.index(density), PENETRATIONS.index(int(pen)), MESSAGES.index(msg)
-    if not 0 <= int(seed) < REPETITIONS:
-        raise ValueError("the seed must be between 0 and %d" % (REPETITIONS - 1))
-    return ((d * len(PENETRATIONS) + p) * len(MESSAGES) + m) * REPETITIONS + int(seed)
+    """The OMNeT++ run number of a cell and a seed of the core grid."""
+    return GRID.run_number(seed, density=density, pen=pen, msg=msg)
 
 
-def cell_of_run(number: int) -> dict:
+def cell_of_run(number: int, design: Design = GRID) -> dict:
     """The cell and the seed of a run number."""
-    if not 0 <= int(number) < N_RUNS:
-        raise ValueError("the run number must be between 0 and %d" % (N_RUNS - 1))
-    seed = int(number) % REPETITIONS
-    rest = int(number) // REPETITIONS
-    m = rest % len(MESSAGES)
-    rest //= len(MESSAGES)
-    p = rest % len(PENETRATIONS)
-    d = rest // len(PENETRATIONS)
-    return dict(density=DENSITIES[d], pen=PENETRATIONS[p], msg=MESSAGES[m], seed=seed, kind="calibration" if seed in CAL_SEEDS else "evaluation")
+    return design.cell_of_run(number)
 
 
-def runs_table() -> pd.DataFrame:
+def runs_table(design: Design = GRID) -> pd.DataFrame:
     """Every run of the grid: run number, cell, seed, kind."""
-    return pd.DataFrame([dict(run=n, **cell_of_run(n)) for n in range(N_RUNS)])
+    return design.runs_table()
 
 
-def seed_runs(seeds) -> list[int]:
-    """The run numbers of the given seeds in every cell (for example the seeds 0 and 1 of every cell: 72 runs)."""
-    wanted = {int(s) for s in seeds}
-    return [n for n in range(N_RUNS) if n % REPETITIONS in wanted]
+def seed_runs(seeds, design: Design = GRID) -> list[int]:
+    """The run numbers of the given seeds in every cell (for example the seeds 0 and 1 of every cell of the core grid: 72 runs)."""
+    return design.seed_runs(seeds)
 
 
 def cell_runs(density: str, pen: int, msg: str) -> list[int]:
-    """The 12 run numbers of a cell."""
-    return [run_number(density, pen, msg, seed) for seed in range(REPETITIONS)]
+    """The 12 run numbers of a cell of the core grid."""
+    return GRID.cell_runs(density=density, pen=pen, msg=msg)
 
 
-def cell_from_variables(variables: dict) -> dict | None:
+def cell_from_variables(variables: dict, design: Design = GRID) -> dict | None:
     """The cell written by the exporter from the iteration variables of the run (None when one is missing)."""
-    try:
-        density, pen, msg = str(variables["density"]), int(variables["pen"]), str(variables["msg"])
-    except (KeyError, ValueError, TypeError):
-        return None
-    if density not in DENSITIES or pen not in PENETRATIONS or msg not in MESSAGES:
-        return None
-    return dict(density=density, pen=pen, msg=msg)
+    return design.cell_from_variables(variables)
 
 
-def _number_of_folder(name: str) -> int | None:
-    m = re.fullmatch(r"aoc-%s-(\d+)" % CONFIG, name)
+def _number_of_folder(name: str, design: Design = GRID) -> int | None:
+    m = re.fullmatch(r"aoc-%s-(\d+)" % design.config, name)
     return int(m.group(1)) if m else None
 
 
-def index_runs(root: str | os.PathLike) -> pd.DataFrame:
-    """One row per run folder ``aoc-grid-<n>`` under ``root``: exported or not, with its cell and its numbers."""
+def index_runs(root: str | os.PathLike, design: Design = GRID) -> pd.DataFrame:
+    """One row per run folder ``aoc-<config>-<n>`` under ``root``: exported or not, with its cell and its numbers."""
     root = os.fspath(root)
+    names = list(design.names)
+    N_RUNS, cell_of_run, cell_from_variables = design.n_runs, design.cell_of_run, design.cell_from_variables
     exit_codes, export_codes = {}, {}
     codes_path = os.path.join(root, "exit-codes.txt")
     if os.path.isfile(codes_path):                       # one line per run of the script: "run simulation_code export_code", the last one counts
@@ -3114,13 +3401,13 @@ def index_runs(root: str | os.PathLike) -> pd.DataFrame:
     rows = []
     seen = set()
     for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
-        number = _number_of_folder(name)
+        number = _number_of_folder(name, design)
         if number is None:
             continue
         seen.add(number)
         folder = os.path.join(root, name)
         expected = cell_of_run(number) if number < N_RUNS else {}
-        row = dict(run=number, folder=folder, exported=False, **{k: expected.get(k) for k in ("density", "pen", "msg", "seed", "kind")},
+        row = dict(run=number, folder=folder, exported=False, **{k: expected.get(k) for k in names + ["seed", "kind"]},
                    exit_code=exit_codes.get(number), export_code=export_codes.get(number), run_id="", result="", t_last_s=None, steps=None,
                    receivers=None, rows_observations=None, rows_cpm_rx=None, rows_local=None, objects_true=None, parquet_mb=None, cell_matches=None,
                    has_variables=None)
@@ -3136,8 +3423,8 @@ def index_runs(root: str | os.PathLike) -> pd.DataFrame:
             cell = cell_from_variables(info.get("variables") or {})
             seed = info.get("seed")
             row["has_variables"] = cell is not None
-            if expected:                                 # a run without the three variables is not a run of the grid
-                row["cell_matches"] = bool(cell is not None and cell == {k: expected[k] for k in ("density", "pen", "msg")} and seed == expected["seed"])
+            if expected:                                 # a run without the variables of the design is not a run of it
+                row["cell_matches"] = bool(cell is not None and cell == {k: expected[k] for k in names} and seed == expected["seed"])
                 if cell is not None and not row["cell_matches"]:
                     row.update(cell)
                     row["seed"] = seed
@@ -3149,14 +3436,16 @@ def index_runs(root: str | os.PathLike) -> pd.DataFrame:
                              rows_observations=None, rows_cpm_rx=None, rows_local=None, objects_true=None, parquet_mb=None, cell_matches=None,
                              has_variables=None))
     table = pd.DataFrame(rows).sort_values("run").reset_index(drop=True)
-    for col in ("exit_code", "export_code", "steps", "receivers", "rows_observations", "rows_cpm_rx", "rows_local", "objects_true", "pen", "seed"):
+    int_factors = [n for n in names if isinstance(design.factors[n][0], int)]
+    for col in ("exit_code", "export_code", "steps", "receivers", "rows_observations", "rows_cpm_rx", "rows_local", "objects_true", "seed", *int_factors):
         table[col] = table[col].astype("Int64")
     return table
 
 
-def check_grid(table: pd.DataFrame) -> dict:
+def check_grid(table: pd.DataFrame, design: Design = GRID) -> dict:
     """What is done and what is missing: the good runs (exported, PASS, right cell), the missing or failed run numbers,
     the count per cell."""
+    N_RUNS, names = design.n_runs, list(design.names)
     in_grid = table["run"] < N_RUNS
     passed = table["exported"] & (table["result"] == "PASS")
     good = table[in_grid & passed & (table["cell_matches"] == True)]  # noqa: E712
@@ -3169,25 +3458,27 @@ def check_grid(table: pd.DataFrame) -> dict:
     bad_code = (table["exit_code"].fillna(0) != 0) | (table["export_code"].fillna(0) != 0)
     failed_run = sorted(table.loc[in_grid & bad_code & ~passed, "run"])
     stray = sorted(table.loc[~in_grid, "run"])
-    per_cell = (good.groupby(["density", "pen", "msg"]).agg(evaluation=("seed", lambda s: int(sum(1 for v in s if v in EVAL_SEEDS))),
-                                                          calibration=("seed", lambda s: int(sum(1 for v in s if v in CAL_SEEDS))))
-                .reindex(pd.MultiIndex.from_product([DENSITIES, PENETRATIONS, MESSAGES], names=["density", "pen", "msg"]), fill_value=0)
+    eval_seeds, cal_seeds = design.eval_seeds, design.cal_seeds
+    per_cell = (good.groupby(names).agg(evaluation=("seed", lambda s: int(sum(1 for v in s if v in eval_seeds))),
+                                        calibration=("seed", lambda s: int(sum(1 for v in s if v in cal_seeds))))
+                .reindex(pd.MultiIndex.from_product([design.factors[n] for n in names], names=names), fill_value=0)
                 .reset_index())
     return dict(done=len(done), missing=missing, wrong_cell=wrong_cell, no_variables=no_variables, failed_export=failed_export,
                 failed_run=failed_run, stray=stray, per_cell=per_cell, complete=not missing and not wrong_cell and not no_variables)
 
 
-def format_check(c: dict) -> str:
+def format_check(c: dict, design: Design = GRID) -> str:
+    names = list(design.names)
     lines = ["runs done: %d of %d (%d evaluation, %d calibration)" % (
-        c["done"], N_RUNS, int(c["per_cell"]["evaluation"].sum()), int(c["per_cell"]["calibration"].sum()))]
+        c["done"], design.n_runs, int(c["per_cell"]["evaluation"].sum()), int(c["per_cell"]["calibration"].sum()))]
     per_cell = c["per_cell"]
-    full = (per_cell["evaluation"] >= len(EVAL_SEEDS)) & (per_cell["calibration"] >= len(CAL_SEEDS))
+    full = (per_cell["evaluation"] >= len(design.eval_seeds)) & (per_cell["calibration"] >= len(design.cal_seeds))
     started = (per_cell["evaluation"] + per_cell["calibration"]) > 0
     lines.append("cells complete: %d of %d, started: %d" % (int(full.sum()), len(per_cell), int(started.sum())))
     short = per_cell[started & ~full]
     if len(short):
         lines.append("cells started and not complete (evaluation+calibration runs): " + "; ".join(
-            "%s/%d/%s %d+%d" % (r.density, r.pen, r.msg, r.evaluation, r.calibration) for r in short.itertuples()))
+            "/".join(str(getattr(r, n)) for n in names) + " %d+%d" % (r.evaluation, r.calibration) for r in short.itertuples()))
     if c["failed_run"]:
         lines.append("runs that ended with an error: " + compact(c["failed_run"]))
     if c["failed_export"]:
@@ -3195,12 +3486,14 @@ def format_check(c: dict) -> str:
     if c["wrong_cell"]:
         lines.append("runs whose variables are not those of their run number (the order of the runs is not the one assumed): " + compact(c["wrong_cell"]))
     if c["no_variables"]:
-        lines.append("runs exported without the variables of the grid (density, pen, msg; not runs of the configuration grid?): " + compact(c["no_variables"]))
+        lines.append("runs exported without the variables of the design (%s; not runs of the configuration %s?): %s" % (
+            ", ".join(names), design.config, compact(c["no_variables"])))
     if c["stray"]:
         lines.append("run folders with a number outside the grid (ignored): " + compact(c["stray"]))
     if c["missing"]:
         lines.append("missing: %d run(s): %s" % (len(c["missing"]), compact(c["missing"])))
-        lines.append("to run them: bash d1_grid.sh --runs " + compact(c["missing"]) + "   (or bash d1_grid.sh alone: it runs what is missing)")
+        option = "" if design.config == "grid" else " --%s" % design.config
+        lines.append("to run them: bash d1_grid.sh%s --runs " % option + compact(c["missing"]) + "   (or bash d1_grid.sh%s alone: it runs what is missing)" % option)
     lines.append("grid: %s" % ("complete" if c["complete"] else "incomplete"))
     return "\n".join(lines)
 
@@ -3220,18 +3513,20 @@ def compact(numbers: list) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Index and check the exported runs of the core grid (task D1).")
-    ap.add_argument("root", help="the results folder of the grid (holds the run folders aoc-grid-<n>)")
+    ap = argparse.ArgumentParser(description="Index and check the exported runs of the core grid (task D1) or of the control grid (task E2).")
+    ap.add_argument("root", help="the results folder of the grid (holds the run folders aoc-<config>-<n>)")
+    ap.add_argument("--design", choices=sorted(DESIGNS), default="grid", help="the design: grid (default) or control")
     ap.add_argument("--out", default=None, help="write the index (one row per run) to this CSV file")
     ap.add_argument("--missing", default=None, help="write the missing run numbers, one per line, to this file")
-    ap.add_argument("--list", action="store_true", help="print the table of the 432 runs (run number, cell, seed) and stop")
+    ap.add_argument("--list", action="store_true", help="print the table of the runs (run number, cell, seed) and stop")
     args = ap.parse_args(argv)
+    design = DESIGNS[args.design]
     if args.list:
-        print(runs_table().to_string(index=False))
+        print(design.runs_table().to_string(index=False))
         return 0
-    table = index_runs(args.root)
-    c = check_grid(table)
-    print(format_check(c))
+    table = index_runs(args.root, design)
+    c = check_grid(table, design)
+    print(format_check(c, design))
     if args.out:
         table.to_csv(args.out, index=False)
         print("index: %s" % args.out)
@@ -3359,11 +3654,34 @@ cell_runs() {
     local base=$(( ((d * 4 + p) * 3 + m) * 12 ))
     seq -s ' ' "$base" $((base + 11))
 }
+# the runs of the seeds $1 (a list like --runs) of every cell: run = cell * seeds_per_cell + seed
+seed_runs() {
+    local seeds s base out=""
+    seeds="$(parse_runs "$1")" || return 2
+    for s in $seeds; do
+        [ "$s" -lt "$N_SEEDS" ] || { echo "D1: the seeds go from 0 to $((N_SEEDS - 1)) in this design" >&2; return 2; }
+    done
+    for base in $(seq 0 "$N_SEEDS" $((N_RUNS - 1))); do
+        for s in $seeds; do out="$out $((base + s))"; done
+    done
+    echo "$out" | tr -s ' ' | sed 's/^ //'
+}
+N_SEEDS=12
+if [ "${1:-}" = "--control" ]; then                 # the control grid (task E2): the same script, the design control
+    shift
+    DESIGN="control"; CONFIG="control"; N_RUNS=240; N_SEEDS=4
+    case "${1:-}" in
+        --cell) echo "D1: --cell is for the core grid; give the run numbers of the control grid with --runs (aoc-grid --design control --list prints them)"; exit 2 ;;
+        --quick|--control-quick|--control-load) echo "D1: $1 does not go with --control"; exit 2 ;;
+    esac
+fi
 case "${1:-}" in
     "") RUN_LIST="$(seq -s ' ' 0 $((N_RUNS - 1)))" ;;
     --quick) CONFIG="grid_quick"; RUN_LIST="0"; D1_SIM_TIME="60s" ;;
     --control-quick) CONFIG="control_quick"; RUN_LIST="0 1 2"; D1_SIM_TIME="60s" ;;
+    --control-load) CONFIG="control_load"; RUN_LIST="0 1 2 3"; D1_SIM_TIME="60s" ;;
     --runs) [ -n "${2:-}" ] || { echo "D1: --runs needs a list, for example 3,17-20,41"; exit 2; }; RUN_LIST="$(parse_runs "$2")" || exit 2 ;;
+    --seeds) [ -n "${2:-}" ] || { echo "D1: --seeds needs a list, for example 0,1"; exit 2; }; RUN_LIST="$(seed_runs "$2")" || exit 2 ;;
     --cell) [ -n "${4:-}" ] || { echo "D1: --cell needs DENSITY PEN MSG, for example low 100 etsi"; exit 2; }; RUN_LIST="$(cell_runs "$2" "$3" "$4")" || exit 2 ;;
     --check) MODE="check"; CHECK_DIR="${2:-}" ;;
     -h|--help) usage; exit 0 ;;
@@ -3394,11 +3712,11 @@ export_one() {
 # index the results folder with the checker; prints the check and returns its code
 index_results() {
     local res="$1"
-    "$VENV/bin/python" "$CHECKER" "$res" --out "$res/d1_index.csv" --missing "$res/d1_missing.txt"
+    "$VENV/bin/python" "$CHECKER" "$res" --design "$DESIGN" --out "$res/d1_index.csv" --missing "$res/d1_missing.txt"
 }
 
 if [ "$MODE" = "check" ]; then
-    [ -n "$CHECK_DIR" ] || CHECK_DIR="$D1_DIR/results/grid"
+    [ -n "$CHECK_DIR" ] || CHECK_DIR="$D1_DIR/results/$DESIGN"
     [ -d "$CHECK_DIR" ] || { echo "D1: give the results folder of the grid."; exit 2; }
     [ -x "$VENV/bin/python" ] || { echo "D1: $VENV is missing. Run 'bash a8_logger.sh' once first."; exit 2; }
     mkdir -p "$D1_DIR" && write_exporter || { echo "D1: cannot write $EXPORTER"; exit 2; }
@@ -3498,8 +3816,8 @@ step_done "scenario" "OK" "road with $N_CROSS crossings and $N_POLY buildings in
 write_exporter || finish_fail "Cannot write $EXPORTER." "Check the rights of $D1_DIR." "" ""
 
 # ---- step 3: the runs, several at a time, each exported as soon as it ends
-if [ "$CONFIG" = "grid" ]; then
-    RES="$D1_DIR/results/grid"                       # one fixed folder: the grid is run in several sittings
+if [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; then
+    RES="$D1_DIR/results/$CONFIG"                    # one fixed folder: a grid is run in several sittings
 else
     RES="$D1_DIR/results/$(date +%Y%m%d-%H%M%S)-$CONFIG"
 fi
@@ -3562,7 +3880,7 @@ fi
 
 # ---- step 4: index the results (the grid) or sum up the run (quick)
 T0=$(date +%s)
-if [ "$CONFIG" = "grid" ]; then
+if [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; then
     say "Indexing the results."
     SUMMARY="$(index_results "$RES" 2>&1)"
     IRC=$?
@@ -3571,6 +3889,40 @@ if [ "$CONFIG" = "grid" ]; then
         finish_fail "The index of the results did not run." "Paste the report in the chat." "$RES" "$SUMMARY"
     fi
     step_done "index" "OK" "$(fmt_dur $(( $(date +%s) - T0 )))"
+elif [ "$CONFIG" = "control_load" ]; then
+    # the busy ratio each load level gives (task E2): per run, the load stations, the CBR seen by the receivers after a warm-up
+    # of 10 s, the CPM rate and the time the simulation took (the delivery ratio of the export is not printed: it counts the
+    # receivers in range of a sender, which the loaded channel changes too)
+    SUMMARY="$("$VENV/bin/python" - "$RES" "$CONFIG" "$GRID_DIR/omnetpp.ini" <<'PYEOF' 2>&1
+import glob, json, os, re, sys
+import pandas as pd
+res, config, ini = sys.argv[1], sys.argv[2], sys.argv[3]
+m = re.search(r"^\*\.rsu\*\.middleware\.LOAD\.rate\s*=\s*([0-9.]+)\s*Hz", open(ini).read(), re.M)
+rate = float(m.group(1)) if m else float("nan")                                       # the packets per second of one load station
+print("load level: the busy ratio and the time of a run of 60 s (high density, 100 %, the rules of ETSI); load = the load stations")
+print("%-6s %-6s %-9s %-9s %-9s %-9s %-11s %s" % ("run", "load", "cars", "cbr_mean", "cbr_p95", "cpm_hz", "load_pkt/s", "wall"))
+for folder in sorted(glob.glob(os.path.join(res, "aoc-%s-*" % config)), key=lambda f: int(f.rsplit("-", 1)[1])):
+    n = int(folder.rsplit("-", 1)[1])
+    info = json.load(open(os.path.join(folder, "parquet", "export_summary.json")))
+    rx = pd.read_parquet(os.path.join(folder, "parquet", "cpm_rx.parquet"))
+    tx = pd.read_parquet(os.path.join(folder, "parquet", "cpm_tx.parquet"))
+    rx, tx = rx[rx["t_rx"] >= 10], tx[tx["t_tx"] >= 10]
+    seconds = float(info.get("t_last_s") or 60) - 10
+    senders = tx["tx_id"].nunique()
+    load = int(info.get("variables", {}).get("load", 0))
+    wall = ""
+    try:
+        text = open(os.path.join(res, "run-%d.log" % n)).read()
+        m = re.findall(r"Elapsed: ([0-9.]+)s", text)
+        wall = m[-1] + " s" if m else ""
+    except OSError:
+        pass
+    print("%-6d %-6d %-9d %-9.4f %-9.4f %-9.2f %-11.0f %s" % (n, load, senders, rx["cbr"].mean(), rx["cbr"].quantile(0.95), len(tx) / seconds / max(senders, 1),
+                                                             load * rate, wall))
+PYEOF
+)"
+    IRC=0
+    step_done "summary" "OK" "load levels"
 elif [ "$CONFIG" = "control_quick" ]; then
     # the check of the rule (task E1): the aoc run against the two ETSI runs, after a warm-up of 10 s
     # every car of the quick run is a station, so the receiver metric counts every object (--objects all)
@@ -3598,7 +3950,7 @@ fi
 ln -sfn "$RES" "$D1_DIR/latest"
 
 EXTRA="where the files are:"$'\n'"  results:       $RES  (also $D1_DIR/latest)"$'\n'"  one run:       $RES/aoc-$CONFIG-N/parquet (the CSV logs packed as .csv.gz)"
-[ "$CONFIG" = "grid" ] && EXTRA="$EXTRA"$'\n'"  index:         $RES/d1_index.csv, missing runs in $RES/d1_missing.txt, progress in $RES/progress.txt"
+{ [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; } && EXTRA="$EXTRA"$'\n'"  index:         $RES/d1_index.csv, missing runs in $RES/d1_missing.txt, progress in $RES/progress.txt"
 if [ "$N_FAILED" -gt 0 ]; then
     FIRST="$(echo "$FAILED_RUNS" | awk '{print $1}')"
     HINT="Read $RES/run-$FIRST.log and $RES/aoc-$CONFIG-$FIRST/export.log. "
@@ -3608,7 +3960,7 @@ if [ "$N_FAILED" -gt 0 ]; then
     finish_fail "$N_FAILED run(s) ended with an error or did not export." "$HINT" "$RES" "$SUMMARY"$'\n'"log excerpt of run $FIRST:"$'\n'"$(grep -v '^[[:space:]]*$' "$RES/run-$FIRST.log" | tail -n 10 | cut -c1-300)"
 fi
 VERDICT="PASS"
-if [ "$CONFIG" = "grid" ] && [ "$IRC" -ne 0 ]; then VERDICT="PASS (this sitting; the grid is not complete yet)"; fi
+if { [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; } && [ "$IRC" -ne 0 ]; then VERDICT="PASS (this sitting; the grid is not complete yet)"; fi
 write_report "$VERDICT" "$RES" "$SUMMARY" "$EXTRA"
 echo
 printf '%s\n' "$REPORT_TEXT"

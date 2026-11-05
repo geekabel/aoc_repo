@@ -173,6 +173,15 @@ A8_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'A8_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocCpService.cc@@
 A8_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.ned" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.ned@@
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.h" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.h@@
+A8_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.cc" <<'A8_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.cc@@
+A8_FILE_EOF
     put_file "$EXT_DIR/cpservice-protected.patch" <<'A8_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/cpservice-protected.patch@@
 A8_FILE_EOF

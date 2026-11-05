@@ -31,11 +31,27 @@ stable over the run up to 700 (at 800 and above the junction saturates and the q
 draws the arrivals and the speed deviations from its own seed, which the OMNeT++ configuration sets from the
 repetition, so every seed has its own traffic.
 
+The control grid (task E2) uses the same road, events and densities, with the equipped cars drawn in the route
+file: on each approach two flows, ``eq_<leg>`` at the share of the penetration and ``bg_<leg>`` at the rest (the
+sum is the density; the superposition of two Poisson flows is a Poisson flow). The services file of the control
+grid gives the CA and CP services to the ``eq_`` cars and the actors of the events by name, so that a car has V2X
+(CAM and CPM together) or nothing: the ``bg_`` cars, the truck and the pedestrian are the objects collective
+perception serves. One route file per density and penetration: ``control_<density>_p<pen>.rou.xml``.
+
+The channel load of the control grid comes from load stations: static stations around the junction that only run
+the load source of the extension (``AocLoadService``, no DCC on them: the other stations do not back off). The
+files ``load_<n>.xml`` place ``n`` of them (Artery's ``StaticNodeManager``) on a grid of 80 m around the junction, the
+closest first; ``load_0.xml`` places none. The equipped cars themselves are held by their DCC: at 10 Hz CAMs and the
+CPMs they cannot add much (the check of Nov 4, 2026: 25 packets per second asked from each car raised the busy
+ratio from 0.12 to 0.15 only).
+
     python3 artery-ext/tools/make_grid_scenario.py            writes the files into artery-ext/grid
     python3 artery-ext/tools/make_grid_scenario.py --check    writes nothing, fails if a file is out of date
 
 Needs only the Python standard library.
 """
+from __future__ import annotations
+
 import argparse
 import pathlib
 import sys
@@ -44,6 +60,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "artery-ext" / "grid"
 
 DENSITIES = {"low": 250.0, "medium": 450.0, "high": 700.0}     # vehicles per hour per approach, three approaches (about 15, 25 and 40 cars)
+PENETRATIONS = (25, 100)                                           # the control grid: the share of the cars with V2X, drawn in the route file
+CONTROL_DENSITIES = ("low", "high")                                # the control grid runs two of the three densities
+LOAD_STATIONS = (0, 12, 24, 36)                                   # the control grid: the load stations around the junction
+LOAD_GRID = 6                                                      # the stations stand on a 6 x 6 grid ...
+LOAD_SPACING = 80.0                                                # ... with 80 m between them, centred on the junction
+CENTRE = (300.42, 299.50)                                          # the junction C of the road (vru.net.xml)
 CYCLE = 90.0                                                      # the light cycle of the junction (s), north-south green first
 STARTS = (CYCLE, 2 * CYCLE, 3 * CYCLE)                            # the events start at the start of a cycle, like C5 at 0 s
 EVENTS = tuple(t + 16.6 for t in STARTS)                          # the pedestrian comes out of the alley at these times (s)
@@ -66,11 +88,16 @@ def route_edges(frm: str, to: str) -> str:
     return APPROACH[frm] + " " + EXIT[to]
 
 
-def header(density: str, rate: float) -> str:
+def header(density: str, rate: float, pen: int | None = None) -> str:
+    if pen is None:
+        what = "<!-- Core grid of the plan (task D1), density %s: %.0f vehicles per hour on each of the north, east and west approaches," % (density, rate)
+    else:
+        what = ("<!-- Control grid of the plan (task E2), density %s, penetration %d %%: %.0f vehicles per hour on each of the north, east and west "
+                "approaches, %.0f of them with V2X (the flows eq_*) and %.0f without (bg_*)," % (density, pen, rate, rate * pen / 100.0, rate * (100 - pen) / 100.0))
     return "\n".join([
         '<?xml version="1.0" encoding="UTF-8"?>',
         "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
-        "<!-- Core grid of the plan (task D1), density %s: %.0f vehicles per hour on each of the north, east and west approaches," % (density, rate),
+        what,
         "     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;",
         "     the event of C5 three times (started at %s s, the pedestrian out of the alley 16.6 s later). -->" % ", ".join("%.0f" % t for t in STARTS),
         "<routes>",
@@ -118,37 +145,41 @@ def event_vehicles(k: int, t: float) -> list:
     ]
 
 
-def flows(rate: float) -> list:
+def flows(rate: float, pen: int | None = None) -> list:
     """The background flows, random arrivals at the rate of the density on each of the north, east and west approaches,
-    from time 0 to the end."""
-    per_second = rate / 3600.0
+    from time 0 to the end. With a penetration, two flows per approach: the cars with V2X (eq_, the share of the
+    penetration) and the cars without (bg_, the rest); a flow with a rate of 0 is left out."""
+    parts = [("bg", rate)] if pen is None else [("eq", rate * pen / 100.0), ("bg", rate * (100 - pen) / 100.0)]
     lines = []
     for leg in FLOW_LEGS:
-        lines.append((0.0, '    <flow id="bg_%s" type="flow" route="from_%s" begin="0" end="%.0f" period="exp(%.5f)" departLane="best" departSpeed="max"/>'
-                      % (leg, leg, DURATION, per_second)))
+        for kind, part in parts:
+            if part <= 0.0:
+                continue
+            lines.append((0.0, '    <flow id="%s_%s" type="flow" route="from_%s" begin="0" end="%.0f" period="exp(%.5f)" departLane="best" departSpeed="max"/>'
+                          % (kind, leg, leg, DURATION, part / 3600.0)))
     return lines
 
 
-def routes_xml(density: str) -> str:
+def routes_xml(density: str, pen: int | None = None) -> str:
     rate = DENSITIES[density]
-    items = flows(rate)
+    items = flows(rate, pen)
     for k, t in enumerate(EVENTS, start=1):
         items.extend(event_vehicles(k, t))
     items.sort(key=lambda item: item[0])                       # SUMO wants the file sorted by departure
-    lines = [header(density, rate)] + distributions() + ["", "    <!-- the events of C5 and the background flows, sorted by departure -->"]
+    lines = [header(density, rate, pen)] + distributions() + ["", "    <!-- the events of C5 and the background flows, sorted by departure -->"]
     lines += [text for _, text in items]
     lines.append("</routes>")
     return "\n".join(lines) + "\n"
 
 
-def sumocfg_xml(density: str) -> str:
+def sumocfg_xml(name: str) -> str:
     return "\n".join([
         '<?xml version="1.0" encoding="UTF-8"?>',
         "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
         "<configuration>",
         "    <input>",
         '        <net-file value="vru.net.xml"/>',
-        '        <route-files value="grid_%s.rou.xml"/>' % density,
+        '        <route-files value="%s.rou.xml"/>' % name,
         '        <additional-files value="vru.poly.xml"/>',
         "    </input>",
         "    <time>",
@@ -168,16 +199,41 @@ def sumocfg_xml(density: str) -> str:
     ]) + "\n"
 
 
+def load_stations_xml(n: int) -> str:
+    """The n load stations closest to the junction on the grid (the file of Artery's StaticNodeManager)."""
+    half = (LOAD_GRID - 1) / 2.0
+    points = []
+    for i in range(LOAD_GRID):
+        for j in range(LOAD_GRID):
+            x, y = CENTRE[0] + (i - half) * LOAD_SPACING, CENTRE[1] + (j - half) * LOAD_SPACING
+            points.append(((x - CENTRE[0]) ** 2 + (y - CENTRE[1]) ** 2, i, j, x, y))
+    points.sort()
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             "<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->",
+             "<!-- Control grid of the plan (task E2): %d load stations around the junction, on a grid of %.0f m, the closest first. -->" % (n, LOAD_SPACING),
+             "<nodes>"]
+    for _, i, j, x, y in points[:n]:
+        lines.append('    <rsu id="load_%d_%d" positionX="%.2f" positionY="%.2f"/>' % (i, j, x, y))
+    lines.append("</nodes>")
+    return "\n".join(lines) + "\n"
+
+
 def files() -> dict:
     out = {}
+    for n in LOAD_STATIONS:
+        out["load_%d.xml" % n] = load_stations_xml(n)
     for density in DENSITIES:
         out["grid_%s.rou.xml" % density] = routes_xml(density)
-        out["grid_%s.sumo.cfg" % density] = sumocfg_xml(density)
+        out["grid_%s.sumo.cfg" % density] = sumocfg_xml("grid_%s" % density)
+        for pen in (PENETRATIONS if density in CONTROL_DENSITIES else ()):
+            name = "control_%s_p%d" % (density, pen)
+            out[name + ".rou.xml"] = routes_xml(density, pen)
+            out[name + ".sumo.cfg"] = sumocfg_xml(name)
     return out
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Write the SUMO route files and configurations of the core grid.")
+    ap = argparse.ArgumentParser(description="Write the SUMO route files and configurations of the core grid and of the control grid.")
     ap.add_argument("--check", action="store_true", help="write nothing; exit with 1 if a file is out of date")
     ap.add_argument("--out", default=str(OUT), help="output folder (default: artery-ext/grid)")
     args = ap.parse_args(argv)

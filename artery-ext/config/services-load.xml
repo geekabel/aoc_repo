@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (task E2): the load stations run the load source of the AoC extension only (AocLoadService: packets of
+     300 bytes at the rate set in omnetpp.ini, single hop, DP3), without DCC (NoRateControlDccEntity in omnetpp.ini: the
+     other stations do not back off). They stand for the other applications and the other stations that load the channel. -->
+<services>
+	<service type="AocLoadService" name="LOAD">
+		<listener port="2010" />
+	</service>
+</services>

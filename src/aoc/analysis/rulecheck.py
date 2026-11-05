@@ -196,7 +196,7 @@ def inclusions_table(obj, rule, warmup, tx=None):
 def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, objects="unequipped"):
     """Per receiver: the share of the time an object within range is known with alpha at or above the target."""
     truth, rx, obj = tables["truth"], tables["cpm_rx"], tables["cpm_obj"]
-    stations = set(tables["nodes"]["node_id"].astype(str)) if objects == "unequipped" else set()
+    stations = set(tables["nodes"]["node_id"].dropna().astype(str)) if objects == "unequipped" else set()
     reports = rx.merge(obj[["station_id", "reference_time_ms", "gt_match_id", "t_meas", "speed_cms", "class"]], on=["station_id", "reference_time_ms"], how="inner")
     reports = reports[reports["gt_match_id"].notna()]
     columns = ["rx_id", "pairs", "known", "time_above_target", "cbr_mean"]

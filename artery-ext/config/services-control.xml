@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Control grid (tasks E1 and E2): a car has V2X or nothing. The cars of the flows eq_* (drawn in the route file at the
+     share of the penetration) and the actors of the events (the egos and the helpers) run CA and CP (the CP service of the
+     AoC extension, the generation rule set in omnetpp.ini); the cars of the flows bg_*, the truck and the pedestrians have
+     no station: they are the objects collective perception serves. The channel load comes from the load stations
+     (services-load.xml). -->
+<services>
+	<service type="artery.application.CaService" name="CA">
+		<listener port="2001" />
+		<filters>
+			<name pattern="eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+" />
+		</filters>
+	</service>
+	<service type="AocCpService" name="CP">
+		<listener port="2009" />
+		<filters>
+			<name pattern="eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+" />
+		</filters>
+	</service>
+</services>

@@ -208,13 +208,13 @@ as failed; the others are still read.
   but 0.20 s at high/100/10hz, where 21 of 36 events have a first age above 0.15 s: the first mark of the
   channel load on the age, the effect the grid is meant to measure.
 
-## The control configurations (task E1)
+## The control grid (tasks E1 and E2)
 
-`services-control-10/25/50/100.xml` are the services files of the grid with `AocCpService` (the CP service of the
-extension) in place of `CpService`, so that the generation rule is a parameter of the run (`generationRule`: `etsi`,
-`etsi_abs`, `aoc`). The configuration `control_quick` runs the three rules once (60 s, low density, 100 %);
-`bash d1_grid.sh --control-quick` runs it, exports the runs and prints the check of the rule (`aoc-rulecheck`).
-The control grid itself is task E2. See `docs/generation_rule.md`.
+The same road, events and densities with the equipped cars drawn in the route file (a car has V2X or nothing),
+`AocCpService` in place of `CpService` (the generation rule a factor of the run), and load stations around the
+junction: `docs/control_grid.md`. `bash d1_grid.sh --control` runs it with the same machinery as the core grid
+(`--runs`, `--seeds`, `--check`; the results in `d1/results/control`); `--control-quick` runs the three rules once and checks
+the AoC rule (`aoc-rulecheck`, `docs/generation_rule.md`); `--control-load` runs the four load levels once.
 
 ## What D1 does not do
 

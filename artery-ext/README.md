@@ -10,11 +10,11 @@ The installation lives in `~/aoc-sim`. Before a manual run, load its settings wi
 
 | Folder | Content |
 | --- | --- |
-| `aoc/` | The logger (`AocLogger`), the network `AocWorld` that contains it, `AocCpService`: the CP service of Artery with the AoC generation rule (task E1) and a controlled loss of received CPMs (task C1), and `cpservice-protected.patch`, the change of `CpService.h` the rule needs |
-| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `services-grid-10/25/50/100.xml` (CAM and CPM on a share of the cars, the grid of D1), `services-control-10/25/50/100.xml` (the same with `AocCpService`, the control grid of E1 and E2), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
+| `aoc/` | The logger (`AocLogger`), the network `AocWorld` that contains it, `AocCpService`: the CP service of Artery with the AoC generation rule (task E1) and a controlled loss of received CPMs (task C1), `cpservice-protected.patch`, the change of `CpService.h` the rule needs, and `AocLoadService`, a source of channel load (task E2) |
+| `config/` | `services-cp.xml` (CAM and CPM services), `services-link.xml` (CAM and the lossy CP service), `services-vru1/2/3.xml` (CAM and CPM, the CP service off on some helpers), `services-grid-10/25/50/100.xml` (CAM and CPM on a share of the cars, the grid of D1), `services-control.xml` (CA and the CP service of the extension on the cars with V2X, by name: the control grid of E1 and E2), `services-load.xml` (the load source alone, for the load stations of E2), `sensors-aoc.xml` (the radars of the first AoC runs) and `sensors-vru.xml` (camera, radar and lidar of the plan) |
 | `link/` | The single-link validation scenario of task C1: the road (SUMO), the three cars, the OMNeT++ configuration with the grid T x p |
 | `vru/` | The occluded-VRU scenario of task C5 (E1 of the plan): the intersection, the buildings, the alley, the seven actors, the OMNeT++ configuration. The road files are written by `tools/make_vru_scenario.py` |
-| `grid/` | The core grid of task D1 (E3 of the plan): the road of C5 with background traffic at three densities and the event three times per run, the OMNeT++ configuration with the factors density x penetration x message config x 12 seeds. The route files are written by `tools/make_grid_scenario.py` |
+| `grid/` | The core grid of task D1 (E3 of the plan): the road of C5 with background traffic at three densities and the event three times per run, the OMNeT++ configuration with the factors density x penetration x message config x 12 seeds; and the control grid of task E2 (`control_*`: the cars with V2X drawn in the route file, the factors density x penetration x generation rule x channel load x 4 seeds). The route files are written by `tools/make_grid_scenario.py` |
 | `scripts/` | The scripts to run on the workstation |
 | `tools/` | The templates of the scripts, `build_scripts.py`, which builds them, `make_vru_scenario.py`, which writes the road of the VRU scenario, and `make_grid_scenario.py`, which writes the traffic of the grid |
 
@@ -29,7 +29,7 @@ Each script is one file. Copy it to the workstation and run it with `bash`. Each
 | `scripts/a8_logger.sh` | Adds the logger to Artery, runs the example with it, exports the logs to parquet | a few minutes the first time |
 | `scripts/c1_link.sh` | Runs the single-link scenario on the grid of the plan (16 runs), exports them, checks the period and the loss of each one | 15 to 40 minutes; `--quick` for one run of 30 s |
 | `scripts/c5_vru.sh` | Runs the occluded-VRU pilot (1, 2, 3 helpers x 2 seeds, 6 runs of 60 s), exports the runs, checks that the occlusion event is in the logs of each one | a few minutes; `--quick` for one run of 45 s |
-| `scripts/d1_grid.sh` | Runs the core grid (432 runs of 330 s) in one fixed results folder, exports each run as it ends, packs its logs, indexes what is done; stop and start again at will, `--cell` and `--runs` for a part; `--control-quick` runs the three generation rules of `AocCpService` once (60 s each) and checks the AoC rule against the ETSI runs (task E1) | hours to a day; `--quick` for one run of 60 s |
+| `scripts/d1_grid.sh` | Runs the core grid (432 runs of 330 s) in one fixed results folder, exports each run as it ends, packs its logs, indexes what is done; stop and start again at will, `--cell` and `--runs` for a part; `--control-quick` runs the three generation rules of `AocCpService` once (60 s each) and checks the AoC rule against the ETSI runs (task E1); `--control-load` runs the four load levels once (60 s each) and prints the busy ratio of each; `--control` runs the control grid (240 runs of 330 s, task E2), with `--runs` and `--check` as for the core grid | hours to a day; `--quick` for one run of 60 s |
 
 Options are environment variables written in front of the command. `bash SCRIPT --help` lists them. The most useful ones:
 
@@ -83,6 +83,14 @@ The rule overrides three methods of `CpService` that are private in Artery, and 
 `aoc/cpservice-protected.patch` makes the three virtual and the private section of `src/artery/envmod/service/CpService.h`
 protected (a change of access only, no change of behaviour); the scripts apply it once and build `libartery_envmod.so`
 again.
+
+**The load source** (task E2, `AocLoadService`). Every station that runs it broadcasts packets of `size` bytes
+(300) at `rate` packets per second (0: nothing), single hop, DP3, through the same stack as the CAMs and the CPMs,
+so the DCC of the station throttles them too. The packets carry nothing; the receivers count and drop them. The
+first packet goes out at a random time in the first period, the following ones every period with a jitter of
+`jitterShare` (10 %), so the stations stay apart. It stands for the other applications and the other stations
+that load the channel: the control grid runs it on 0, 12 or 36 static load stations around the junction, at 25
+packets per second each, without DCC (the equipped cars cannot load the channel themselves: their DCC holds them).
 
 **The controlled loss** (task C1). Each received CPM is dropped with probability `dropProbability` before the
 service reads it, with the random number generator of the module (a seed set gives the same drops), and the signal

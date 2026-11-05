@@ -88,7 +88,7 @@ def test_index_and_check(tmp_path):
     text = grid.format_check(c)
     assert "runs done: 5 of 432 (3 evaluation, 2 calibration)" in text and "cells complete: 0 of 36, started: 2" in text
     assert "runs that ended with an error: 39-40" in text and "did not pass: 36" in text and "not those of their run number" in text
-    assert "without the variables of the grid" in text and "outside the grid (ignored): 999" in text
+    assert "without the variables of the design (density, pen, msg" in text and "outside the grid (ignored): 999" in text
     assert "--runs 2-9,13-431" in text and "grid: incomplete" in text
 
 
@@ -122,8 +122,10 @@ def test_scenario_files_are_up_to_date(tmp_path):
     proc = subprocess.run([sys.executable, str(tool), "--check"], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     proc = subprocess.run([sys.executable, str(tool), "--out", str(tmp_path)], capture_output=True, text=True)
-    assert proc.returncode == 0 and sorted(p.name for p in tmp_path.iterdir()) == sorted(
-        "grid_%s.%s" % (d, ext) for d in grid.DENSITIES for ext in ("rou.xml", "sumo.cfg"))
+    expected = ["grid_%s.%s" % (d, ext) for d in grid.DENSITIES for ext in ("rou.xml", "sumo.cfg")]
+    expected += ["control_%s_p%d.%s" % (d, p, ext) for d in grid.CONTROL.factors["density"] for p in grid.CONTROL.factors["pen"] for ext in ("rou.xml", "sumo.cfg")]
+    expected += ["load_%d.xml" % n for n in (0, 12, 24, 36)]
+    assert proc.returncode == 0 and sorted(p.name for p in tmp_path.iterdir()) == sorted(expected)
 
 
 def test_route_files_hold_the_three_events_and_the_flows():
@@ -230,3 +232,69 @@ def test_the_script_checks_its_options_first(tmp_path):
     proc = subprocess.run(["bash", str(ROOT / "artery-ext" / "scripts" / "d1_grid.sh"), "--runs", "0"], capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "D1_ROOT": str(tmp_path / "nowhere")})
     assert proc.returncode == 1 and "does not exist" in proc.stdout and "D1 FAIL" in proc.stdout     # the install of A6 is missing
+
+
+def test_the_control_design():
+    """The control grid of E2: the run numbers, the cells, the variables, the route files and the services file."""
+    c = grid.CONTROL
+    assert c.n_runs == 240 and c.names == ("density", "pen", "rule", "load") and c.cal_seeds == () and c.eval_seeds == (0, 1, 2, 3)
+    assert c.cell_of_run(0) == dict(density="low", pen=25, rule="etsi", load=0, seed=0, kind="evaluation")
+    assert c.run_number(3, density="high", pen=100, rule="aocdev", load=36) == 239 and c.cell_of_run(239)["rule"] == "aocdev"
+    assert c.run_number(1, density="low", pen="100", rule="aoc", load="12") == (((0 * 2 + 1) * 5 + 2) * 3 + 1) * 4 + 1
+    assert c.cell_from_variables({"density": "high", "pen": "25", "rule": "aoc2", "load": "0", "grule": "aoc"}) == dict(density="high", pen=25, rule="aoc2", load=0)
+    assert c.cell_from_variables({"density": "high", "pen": "25", "rule": "2hz", "load": "0"}) is None and c.cell_from_variables({}) is None
+    assert len(c.cell_runs(density="low", pen=25, rule="etsi", load=0)) == 4 and len(c.seed_runs([0])) == 60
+    assert grid.cell_of_run(5, c)["seed"] == 1 and len(grid.runs_table(c)) == 240 and "240 runs" in c.describe()
+    for density in ("low", "high"):
+        for pen in (25, 100):
+            text = (ROOT / "artery-ext" / "grid" / ("control_%s_p%d.rou.xml" % (density, pen))).read_text(encoding="utf-8")
+            assert len(re.findall(r'<flow id="eq_[NEW]"', text)) == 3 and len(re.findall(r'<flow id="bg_[NEW]"', text)) == (0 if pen == 100 else 3)
+            assert re.search(r'<vehicle id="ego_3" ', text) and re.search(r'<person id="ped_1" ', text)
+    text = (ROOT / "artery-ext" / "config" / "services-control.xml").read_text(encoding="utf-8")
+    assert text.count("<service ") == 2 and "AocCpService" in text and "CaService" in text and "AocLoadService" not in text
+    assert text.count('<name pattern="eq_[NEW]\\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+" />') == 2
+    load = (ROOT / "artery-ext" / "config" / "services-load.xml").read_text(encoding="utf-8")
+    assert load.count("<service ") == 1 and "AocLoadService" in load
+    for n in (0, 12, 36):
+        stations = (ROOT / "artery-ext" / "grid" / ("load_%d.xml" % n)).read_text(encoding="utf-8")
+        assert stations.count("<rsu ") == n
+    first = re.search(r'<rsu id="[^"]+" positionX="([0-9.]+)" positionY="([0-9.]+)"', (ROOT / "artery-ext" / "grid" / "load_12.xml").read_text())
+    assert abs(float(first.group(1)) - 300.42) < 60 and abs(float(first.group(2)) - 299.5) < 60          # the closest stations first
+    for name in ("eq_N.12", "ego_2", "helper_c_1"):
+        assert re.fullmatch(r"eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+", name)
+    for name in ("bg_N.3", "truck_1", "ped_2", "eq_S.1"):
+        assert not re.fullmatch(r"eq_[NEW]\.[0-9]+|ego_[0-9]+|helper_[abc]_[0-9]+", name)
+
+
+def test_the_control_configuration_holds_the_factors():
+    ini = configparser.ConfigParser(interpolation=None, strict=False)
+    ini.read(ROOT / "artery-ext" / "grid" / "omnetpp.ini")
+    control = ini["Config control"]
+    assert control["*.traci.launcher.sumocfg"] == '"control_${density=low,high}_p${pen=25,100}.sumo.cfg"'
+    assert control["*.aoclogger.label"] == '"${rule=etsi,etsi_abs,aoc,aoc2,aocdev}-${load=0,12,36}"'
+    assert control["*.staticnodes.nodes"] == 'xmldoc("load_${load}.xml")' and control["repeat"] == "4"
+    assert ini["General"]["*.rsu*.vanetza[*].dcc.typename"] == '"NoRateControlDccEntity"' and ini["General"]["*.rsu*.middleware.load.rate"] == "25Hz"
+    assert control["*.node[*].middleware.cp.generationrule"] == '"${grule=etsi,etsi_abs,aoc,aoc,aoc ! rule}"'      # the quotes outside the iteration
+    assert not re.search(r'\$\{[a-z]+="', "\n".join(control.values()))                                             # a quoted value breaks run.csv
+    assert control["*.node[*].middleware.cp.repeats"] == "${n=1,1,1,2,1 ! rule}"
+    assert control["*.node[*].middleware.cp.deviationfraction"] == "${dev=0,0,0,0,0.5 ! rule}"
+    assert control["*.node[*].middleware.services"] == 'xmldoc("services-control.xml")'
+
+
+def test_index_and_check_of_the_control_grid(tmp_path):
+    c = grid.CONTROL
+    for n in (0, 1, 7):
+        cell = c.cell_of_run(n)
+        folder = tmp_path / ("aoc-control-%d" % n) / "parquet"
+        folder.mkdir(parents=True)
+        variables = {k: str(cell[k]) for k in c.names}
+        json.dump({"result": "PASS", "seed": cell["seed"], "variables": variables, "rows": {}, "size_bytes": {}}, open(folder / "export_summary.json", "w"))
+    (tmp_path / "aoc-grid-5" / "parquet").mkdir(parents=True)                                    # a run of the other design: ignored
+    table = grid.index_runs(tmp_path, c)
+    assert len(table) == 240 and table["exported"].sum() == 3 and set(table.columns) >= {"density", "pen", "rule", "load", "seed"}
+    check = grid.check_grid(table, c)
+    assert check["done"] == 3 and len(check["missing"]) == 237 and check["stray"] == []
+    text = grid.format_check(check, c)
+    assert "runs done: 3 of 240" in text and "--control --runs" in text and "low/25/etsi/0 2+0" in text
+    proc = subprocess.run([sys.executable, "-m", "aoc.analysis.grid", str(tmp_path), "--design", "control"], capture_output=True, text=True)
+    assert proc.returncode == 1 and "3 of 240" in proc.stdout

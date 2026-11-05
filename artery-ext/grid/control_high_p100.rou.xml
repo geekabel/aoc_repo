@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by artery-ext/tools/make_grid_scenario.py. Do not edit by hand. -->
+<!-- Control grid of the plan (task E2), density high, penetration 100 %: 700 vehicles per hour on each of the north, east and west approaches, 700 of them with V2X (the flows eq_*) and 0 without (bg_*),
+     random arrivals, 60% straight, 20% right, 20% left; the south approach carries the event vehicles only;
+     the event of C5 three times (started at 90, 180, 270 s, the pedestrian out of the alley 16.6 s later). -->
+<routes>
+    <vType id="car" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
+           sigma="0.0" accel="2.6" decel="4.5" minGap="2.5" tau="1.0" lcKeepRight="0" lcSpeedGain="0" lcStrategic="1"/>
+    <vType id="flow" vClass="passenger" length="4.5" width="1.8" height="1.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.1"
+           sigma="0.5" accel="2.6" decel="4.5" minGap="2.5" tau="1.0"/>
+    <vType id="truck" vClass="truck" length="12.0" width="2.5" height="4.0" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"
+           sigma="0.0" accel="1.0" decel="4.0" minGap="2.5" tau="1.0" guiShape="truck"/>
+    <vType id="ped" vClass="pedestrian" length="0.5" width="0.5" height="1.7" maxSpeed="1.4" speedFactor="1.0" speedDev="0.0"/>
+
+    <route id="northbound" edges="S0S1 S1C CN0"/>
+    <route id="southbound" edges="N0C CS1 S1S0"/>
+
+    <!-- the background traffic: one route distribution per approach with a flow -->
+    <routeDistribution id="from_N">
+        <route id="N_S" edges="N0C CS1 S1S0" probability="0.6"/>
+        <route id="N_W" edges="N0C CW0" probability="0.2"/>
+        <route id="N_E" edges="N0C CE0" probability="0.2"/>
+    </routeDistribution>
+    <routeDistribution id="from_E">
+        <route id="E_W" edges="E0C CW0" probability="0.6"/>
+        <route id="E_N" edges="E0C CN0" probability="0.2"/>
+        <route id="E_S" edges="E0C CS1 S1S0" probability="0.2"/>
+    </routeDistribution>
+    <routeDistribution id="from_W">
+        <route id="W_E" edges="W0C CE0" probability="0.6"/>
+        <route id="W_S" edges="W0C CS1 S1S0" probability="0.2"/>
+        <route id="W_N" edges="W0C CN0" probability="0.2"/>
+    </routeDistribution>
+
+    <!-- the events of C5 and the background flows, sorted by departure -->
+    <flow id="eq_N" type="flow" route="from_N" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
+    <flow id="eq_E" type="flow" route="from_E" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
+    <flow id="eq_W" type="flow" route="from_W" begin="0" end="330" period="exp(0.19444)" departLane="best" departSpeed="max"/>
+    <vehicle id="truck_1" type="truck" route="northbound" depart="61.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
+    <person id="ped_1" type="ped" depart="90.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
+    <vehicle id="helper_a_1" type="car" route="southbound" depart="90.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <vehicle id="helper_b_1" type="car" route="northbound" depart="90.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
+    <vehicle id="ego_1" type="car" route="northbound" depart="93.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
+    <vehicle id="helper_c_1" type="car" route="southbound" depart="95.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <vehicle id="truck_2" type="truck" route="northbound" depart="151.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
+    <person id="ped_2" type="ped" depart="180.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
+    <vehicle id="helper_a_2" type="car" route="southbound" depart="180.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <vehicle id="helper_b_2" type="car" route="northbound" depart="180.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
+    <vehicle id="ego_2" type="car" route="northbound" depart="183.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
+    <vehicle id="helper_c_2" type="car" route="southbound" depart="185.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <vehicle id="truck_3" type="truck" route="northbound" depart="241.6" departLane="1" departPos="0.0" departSpeed="13.89"><stop lane="S0S1_1" endPos="246.8" duration="50"/></vehicle>
+    <person id="ped_3" type="ped" depart="270.0" departPos="20.0"><walk from="alley" to="S1S0" arrivalPos="80.0"/></person>
+    <vehicle id="helper_a_3" type="car" route="southbound" depart="270.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+    <vehicle id="helper_b_3" type="car" route="northbound" depart="270.5" departLane="2" departPos="90.0" departSpeed="13.89"/>
+    <vehicle id="ego_3" type="car" route="northbound" depart="273.5" departLane="2" departPos="0.0" departSpeed="13.89"/>
+    <vehicle id="helper_c_3" type="car" route="southbound" depart="275.0" departLane="2" departPos="40.0" departSpeed="13.89"/>
+</routes>

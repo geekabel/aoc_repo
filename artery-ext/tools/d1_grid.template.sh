@@ -27,8 +27,16 @@
 #   bash d1_grid.sh --quick                  one run of 60 s (low, 100, etsi), to check the chain
 #   bash d1_grid.sh --control-quick          three runs of 60 s (low, 100) with the generation rules etsi, etsi_abs and aoc
 #                                            of AocCpService (task E1), then the check of the rule against the ETSI runs
+#   bash d1_grid.sh --control-load           four runs of 60 s (high, 100, etsi) with 0, 12, 24 and 36 load stations: the busy
+#                                            ratio each level gives (task E2)
+#   bash d1_grid.sh --control                the 240 runs of the control grid that are not done yet (task E2; hours)
+#   bash d1_grid.sh --control --runs 3,17-20 these run numbers of the control grid
+#   bash d1_grid.sh --control --seeds 0,1    the runs of the seeds 0 and 1 of every cell (120 runs): a first pass over the whole
+#                                            design, before the seeds 2 and 3
+#   bash d1_grid.sh --control --check [DIR]  index the results folder of the control grid again
 #   bash d1_grid.sh --cell low 100 etsi      the 12 runs of one cell
 #   bash d1_grid.sh --runs 3,17-20,41        these run numbers (ranges allowed)
+#   bash d1_grid.sh --seeds 0-5              the runs of these seeds of every cell
 #   bash d1_grid.sh --check [DIR]            index the results folder again (default: the grid folder)
 #   bash d1_grid.sh --help
 #
@@ -95,6 +103,8 @@ CMAKE_FILE="$ARTERY_DIR/scenarios/CMakeLists.txt"
 LIB="$BUILD_DIR/scenarios/aoc/libartery_aoc.so"
 CONFIG="grid"
 N_RUNS=432
+DESIGN="grid"                                     # grid, or control (task E2): the run numbers and the index
+SCENARIO="$D1_DIR/d1_make_scenario.py"
 
 if [ -t 1 ]; then G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
 else G=""; R=""; Y=""; N=""; fi
@@ -184,6 +194,15 @@ D1_FILE_EOF
     put_file "$EXT_DIR/AocCpService.cc" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/AocCpService.cc@@
 D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.ned" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.ned@@
+D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.h" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.h@@
+D1_FILE_EOF
+    put_file "$EXT_DIR/AocLoadService.cc" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/aoc/AocLoadService.cc@@
+D1_FILE_EOF
     put_file "$EXT_DIR/cpservice-protected.patch" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/aoc/cpservice-protected.patch@@
 D1_FILE_EOF
@@ -207,24 +226,6 @@ D1_FILE_EOF
     put_file "$GRID_DIR/vru.poly.geo.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/vru/vru.poly.geo.xml@@
 D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.rou.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_low.rou.xml@@
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.rou.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_medium.rou.xml@@
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.rou.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_high.rou.xml@@
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_low.sumo.cfg" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_low.sumo.cfg@@
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_medium.sumo.cfg" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_medium.sumo.cfg@@
-D1_FILE_EOF
-    put_file "$GRID_DIR/grid_high.sumo.cfg" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/grid/grid_high.sumo.cfg@@
-D1_FILE_EOF
     put_file "$GRID_DIR/services-grid-10.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/config/services-grid-10.xml@@
 D1_FILE_EOF
@@ -237,18 +238,18 @@ D1_FILE_EOF
     put_file "$GRID_DIR/services-grid-100.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/config/services-grid-100.xml@@
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-10.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/config/services-control-10.xml@@
+    put_file "$GRID_DIR/services-control.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-control.xml@@
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-25.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/config/services-control-25.xml@@
+    put_file "$GRID_DIR/services-load.xml" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/config/services-load.xml@@
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-50.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/config/services-control-50.xml@@
+    # the route files and the SUMO configurations of the core grid (6 files) and of the control grid (8 files) and the load
+    # stations (4 files) come from the generator of the scenario (it writes a file only when its content changes)
+    put_file "$SCENARIO" <<'D1_FILE_EOF' || return 1
+@@FILE:artery-ext/tools/make_grid_scenario.py@@
 D1_FILE_EOF
-    put_file "$GRID_DIR/services-control-100.xml" <<'D1_FILE_EOF' || return 1
-@@FILE:artery-ext/config/services-control-100.xml@@
-D1_FILE_EOF
+    python3 "$SCENARIO" --out "$GRID_DIR" > /dev/null || return 1
     put_file "$GRID_DIR/sensors-vru.xml" <<'D1_FILE_EOF' || return 1
 @@FILE:artery-ext/config/sensors-vru.xml@@
 D1_FILE_EOF
@@ -378,11 +379,34 @@ cell_runs() {
     local base=$(( ((d * 4 + p) * 3 + m) * 12 ))
     seq -s ' ' "$base" $((base + 11))
 }
+# the runs of the seeds $1 (a list like --runs) of every cell: run = cell * seeds_per_cell + seed
+seed_runs() {
+    local seeds s base out=""
+    seeds="$(parse_runs "$1")" || return 2
+    for s in $seeds; do
+        [ "$s" -lt "$N_SEEDS" ] || { echo "D1: the seeds go from 0 to $((N_SEEDS - 1)) in this design" >&2; return 2; }
+    done
+    for base in $(seq 0 "$N_SEEDS" $((N_RUNS - 1))); do
+        for s in $seeds; do out="$out $((base + s))"; done
+    done
+    echo "$out" | tr -s ' ' | sed 's/^ //'
+}
+N_SEEDS=12
+if [ "${1:-}" = "--control" ]; then                 # the control grid (task E2): the same script, the design control
+    shift
+    DESIGN="control"; CONFIG="control"; N_RUNS=240; N_SEEDS=4
+    case "${1:-}" in
+        --cell) echo "D1: --cell is for the core grid; give the run numbers of the control grid with --runs (aoc-grid --design control --list prints them)"; exit 2 ;;
+        --quick|--control-quick|--control-load) echo "D1: $1 does not go with --control"; exit 2 ;;
+    esac
+fi
 case "${1:-}" in
     "") RUN_LIST="$(seq -s ' ' 0 $((N_RUNS - 1)))" ;;
     --quick) CONFIG="grid_quick"; RUN_LIST="0"; D1_SIM_TIME="60s" ;;
     --control-quick) CONFIG="control_quick"; RUN_LIST="0 1 2"; D1_SIM_TIME="60s" ;;
+    --control-load) CONFIG="control_load"; RUN_LIST="0 1 2 3"; D1_SIM_TIME="60s" ;;
     --runs) [ -n "${2:-}" ] || { echo "D1: --runs needs a list, for example 3,17-20,41"; exit 2; }; RUN_LIST="$(parse_runs "$2")" || exit 2 ;;
+    --seeds) [ -n "${2:-}" ] || { echo "D1: --seeds needs a list, for example 0,1"; exit 2; }; RUN_LIST="$(seed_runs "$2")" || exit 2 ;;
     --cell) [ -n "${4:-}" ] || { echo "D1: --cell needs DENSITY PEN MSG, for example low 100 etsi"; exit 2; }; RUN_LIST="$(cell_runs "$2" "$3" "$4")" || exit 2 ;;
     --check) MODE="check"; CHECK_DIR="${2:-}" ;;
     -h|--help) usage; exit 0 ;;
@@ -413,11 +437,11 @@ export_one() {
 # index the results folder with the checker; prints the check and returns its code
 index_results() {
     local res="$1"
-    "$VENV/bin/python" "$CHECKER" "$res" --out "$res/d1_index.csv" --missing "$res/d1_missing.txt"
+    "$VENV/bin/python" "$CHECKER" "$res" --design "$DESIGN" --out "$res/d1_index.csv" --missing "$res/d1_missing.txt"
 }
 
 if [ "$MODE" = "check" ]; then
-    [ -n "$CHECK_DIR" ] || CHECK_DIR="$D1_DIR/results/grid"
+    [ -n "$CHECK_DIR" ] || CHECK_DIR="$D1_DIR/results/$DESIGN"
     [ -d "$CHECK_DIR" ] || { echo "D1: give the results folder of the grid."; exit 2; }
     [ -x "$VENV/bin/python" ] || { echo "D1: $VENV is missing. Run 'bash a8_logger.sh' once first."; exit 2; }
     mkdir -p "$D1_DIR" && write_exporter || { echo "D1: cannot write $EXPORTER"; exit 2; }
@@ -517,8 +541,8 @@ step_done "scenario" "OK" "road with $N_CROSS crossings and $N_POLY buildings in
 write_exporter || finish_fail "Cannot write $EXPORTER." "Check the rights of $D1_DIR." "" ""
 
 # ---- step 3: the runs, several at a time, each exported as soon as it ends
-if [ "$CONFIG" = "grid" ]; then
-    RES="$D1_DIR/results/grid"                       # one fixed folder: the grid is run in several sittings
+if [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; then
+    RES="$D1_DIR/results/$CONFIG"                    # one fixed folder: a grid is run in several sittings
 else
     RES="$D1_DIR/results/$(date +%Y%m%d-%H%M%S)-$CONFIG"
 fi
@@ -581,7 +605,7 @@ fi
 
 # ---- step 4: index the results (the grid) or sum up the run (quick)
 T0=$(date +%s)
-if [ "$CONFIG" = "grid" ]; then
+if [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; then
     say "Indexing the results."
     SUMMARY="$(index_results "$RES" 2>&1)"
     IRC=$?
@@ -590,6 +614,40 @@ if [ "$CONFIG" = "grid" ]; then
         finish_fail "The index of the results did not run." "Paste the report in the chat." "$RES" "$SUMMARY"
     fi
     step_done "index" "OK" "$(fmt_dur $(( $(date +%s) - T0 )))"
+elif [ "$CONFIG" = "control_load" ]; then
+    # the busy ratio each load level gives (task E2): per run, the load stations, the CBR seen by the receivers after a warm-up
+    # of 10 s, the CPM rate and the time the simulation took (the delivery ratio of the export is not printed: it counts the
+    # receivers in range of a sender, which the loaded channel changes too)
+    SUMMARY="$("$VENV/bin/python" - "$RES" "$CONFIG" "$GRID_DIR/omnetpp.ini" <<'PYEOF' 2>&1
+import glob, json, os, re, sys
+import pandas as pd
+res, config, ini = sys.argv[1], sys.argv[2], sys.argv[3]
+m = re.search(r"^\*\.rsu\*\.middleware\.LOAD\.rate\s*=\s*([0-9.]+)\s*Hz", open(ini).read(), re.M)
+rate = float(m.group(1)) if m else float("nan")                                       # the packets per second of one load station
+print("load level: the busy ratio and the time of a run of 60 s (high density, 100 %, the rules of ETSI); load = the load stations")
+print("%-6s %-6s %-9s %-9s %-9s %-9s %-11s %s" % ("run", "load", "cars", "cbr_mean", "cbr_p95", "cpm_hz", "load_pkt/s", "wall"))
+for folder in sorted(glob.glob(os.path.join(res, "aoc-%s-*" % config)), key=lambda f: int(f.rsplit("-", 1)[1])):
+    n = int(folder.rsplit("-", 1)[1])
+    info = json.load(open(os.path.join(folder, "parquet", "export_summary.json")))
+    rx = pd.read_parquet(os.path.join(folder, "parquet", "cpm_rx.parquet"))
+    tx = pd.read_parquet(os.path.join(folder, "parquet", "cpm_tx.parquet"))
+    rx, tx = rx[rx["t_rx"] >= 10], tx[tx["t_tx"] >= 10]
+    seconds = float(info.get("t_last_s") or 60) - 10
+    senders = tx["tx_id"].nunique()
+    load = int(info.get("variables", {}).get("load", 0))
+    wall = ""
+    try:
+        text = open(os.path.join(res, "run-%d.log" % n)).read()
+        m = re.findall(r"Elapsed: ([0-9.]+)s", text)
+        wall = m[-1] + " s" if m else ""
+    except OSError:
+        pass
+    print("%-6d %-6d %-9d %-9.4f %-9.4f %-9.2f %-11.0f %s" % (n, load, senders, rx["cbr"].mean(), rx["cbr"].quantile(0.95), len(tx) / seconds / max(senders, 1),
+                                                             load * rate, wall))
+PYEOF
+)"
+    IRC=0
+    step_done "summary" "OK" "load levels"
 elif [ "$CONFIG" = "control_quick" ]; then
     # the check of the rule (task E1): the aoc run against the two ETSI runs, after a warm-up of 10 s
     # every car of the quick run is a station, so the receiver metric counts every object (--objects all)
@@ -617,7 +675,7 @@ fi
 ln -sfn "$RES" "$D1_DIR/latest"
 
 EXTRA="where the files are:"$'\n'"  results:       $RES  (also $D1_DIR/latest)"$'\n'"  one run:       $RES/aoc-$CONFIG-N/parquet (the CSV logs packed as .csv.gz)"
-[ "$CONFIG" = "grid" ] && EXTRA="$EXTRA"$'\n'"  index:         $RES/d1_index.csv, missing runs in $RES/d1_missing.txt, progress in $RES/progress.txt"
+{ [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; } && EXTRA="$EXTRA"$'\n'"  index:         $RES/d1_index.csv, missing runs in $RES/d1_missing.txt, progress in $RES/progress.txt"
 if [ "$N_FAILED" -gt 0 ]; then
     FIRST="$(echo "$FAILED_RUNS" | awk '{print $1}')"
     HINT="Read $RES/run-$FIRST.log and $RES/aoc-$CONFIG-$FIRST/export.log. "
@@ -627,7 +685,7 @@ if [ "$N_FAILED" -gt 0 ]; then
     finish_fail "$N_FAILED run(s) ended with an error or did not export." "$HINT" "$RES" "$SUMMARY"$'\n'"log excerpt of run $FIRST:"$'\n'"$(grep -v '^[[:space:]]*$' "$RES/run-$FIRST.log" | tail -n 10 | cut -c1-300)"
 fi
 VERDICT="PASS"
-if [ "$CONFIG" = "grid" ] && [ "$IRC" -ne 0 ]; then VERDICT="PASS (this sitting; the grid is not complete yet)"; fi
+if { [ "$CONFIG" = "grid" ] || [ "$CONFIG" = "control" ]; } && [ "$IRC" -ne 0 ]; then VERDICT="PASS (this sitting; the grid is not complete yet)"; fi
 write_report "$VERDICT" "$RES" "$SUMMARY" "$EXTRA"
 echo
 printf '%s\n' "$REPORT_TEXT"
