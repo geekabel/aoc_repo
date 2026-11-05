@@ -99,10 +99,12 @@ logs of an exported run (`cpm_tx`, `cpm_obj`, `cpm_rx`, `truth`, `nodes`) and pr
   or above the target (`time_above_target`: `alpha(age)` of the latest report received, with the curve of the
   rule and the state of the report, 0 when no report is younger than the hold), the share of the time it is known
   at all (`known`), the mean channel busy ratio seen by the receiver. The objects counted are the ones without
-  V2X (not in `nodes`): the pedestrians, and the cars without a station. In the core grid every car runs CA, so
-  only the pedestrians count; `--objects all` counts every object but the receiver (the stations are then known
-  through their CPMs only, since these logs hold no CAM). The control grid must give the cars without CP no CA
-  either, so that the objects collective perception is for exist.
+  V2X by default (`--objects unequipped`): the objects that sent no CPM in the run. Every vehicle of Artery is a
+  node with a station id, with or without services, so `nodes` cannot tell an equipped car from a car without
+  V2X; in the control grid a car runs CA and CP together or nothing, so the CPM senders are the equipped cars
+  (the first version of E3 took the nodes, and counted the pedestrians only). `--objects no_station` counts the
+  objects that are no node at all (the pedestrians); `--objects all` counts every object but the receiver (the
+  stations are then known through their CPMs only, since these logs hold no CAM).
 
 The time above the target of a run is pooled over the object ticks of every receiver (a receiver in range of an
 object for a few ticks does not weigh as much as one there all along); the mean over the receivers with at least

@@ -100,11 +100,11 @@ would be too old at the next generation interval) puts almost every object into 
 the moving cars every 0.5 s in the median). The rule then saves on CPMs, not on objects per CPM; E3 reads the
 saving from the bytes per second against the ETSI run of the same cell and seed.
 
-## What the analysis needs next (E3)
+## The analysis (E3)
 
-- The receiver's curve with the stopped state (the replay's discount and alignment: a report with a speed under
-  0.5 m/s is a stopped object, aged with the parked curve and predicted still), so that both sides use the same
-  curve; without it the receiver ages a stopped car as a moving one and the sender's saving is scored as a loss.
-- The metric of F9 from the raw logs (`aoc-rulecheck`: `alpha(age)` of the latest report, the objects without V2X)
-  and from the replay (B3's belief); the Pareto scatter of the time above the target against the busy ratio, one
-  point per rule and load, and the verdict of H4 per pair.
+`aoc-control` reads the runs and answers H4 per pair of rules (same cell and seed), `aoc-grid-figures --only f09`
+draws the frontier: `docs/control_analysis.md`. The metric is the one of `aoc-rulecheck` (`alpha(age)` of the
+latest report, the objects without V2X). A later step is the same analysis on the replay (B3's belief), with the
+receiver's curve given the stopped state (a report with a speed under 0.5 m/s aged with the parked curve and
+predicted still), so that both sides use the same curve; without it the receiver ages a stopped car as a moving one
+and the sender's saving is scored as a loss.

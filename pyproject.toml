@@ -43,6 +43,7 @@ aoc-replay-grid = "aoc.analysis.gridreplay:main"
 aoc-database = "aoc.analysis.database:main"
 aoc-grid-figures = "aoc.analysis.gridfigures:main"
 aoc-rulecheck = "aoc.analysis.rulecheck:main"
+aoc-control = "aoc.analysis.control:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

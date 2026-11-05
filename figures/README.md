@@ -16,6 +16,7 @@ it says so and stops without an error.
 | `f06_money.py` | F6, the belief of the ego in the hidden pedestrian over time, with V2X and with its own sensors only | the occluded-VRU runs of C5: the folder given on the command line, or `AOC_C5_RESULTS`, or `~/aoc-sim/c5/latest` |
 | `f07_awareness.py` | F7, the awareness ratio and the calibration error against the penetration, one line per way with its 95 % band over the evaluation runs of the level | `results/d4/runs.csv` (the same) |
 | `f08_stale.py` | F8, the stale-confidence rate and the ghost rate against the channel busy ratio, one marker per cell and way with its interval | `results/d4/cells.csv` (the same) |
+| `f09_control.py` | F9, the control frontier: the time above the target against the load (the busy ratio, the CPM bytes per sender), one marker per cell and rule of the control grid, the Pareto frontier dashed | `results/e3/cells.csv` (`aoc-control`, E3) |
 
 The four scripts of the grid call `aoc-grid-figures` (`aoc.analysis.gridfigures`), which draws them all at once:
 `aoc-grid-figures [--results results] [--out figures] [--only f05]`. They need no simulation data, only the tables

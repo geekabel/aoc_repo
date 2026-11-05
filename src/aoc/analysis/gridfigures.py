@@ -6,6 +6,9 @@
   F7  the awareness ratio and the calibration error against the penetration, one line per way with its confidence band
       over the evaluation runs of the level (``results/d4/runs.csv``)
   F8  the stale-confidence rate against the channel busy ratio, one marker per cell and way (``results/d4/cells.csv``)
+  F9  the control frontier (task E3): the time above the target against the load, one marker per condition and rule
+      of the control grid with the Pareto frontier of each load level, and the paired effect against ETSI with the
+      region of H4 (``results/e3/cells.csv`` and ``cell_pairs.csv``, written by ``aoc-control``)
 
     aoc-grid-figures [--results results] [--out figures] [--only f05]
 
@@ -30,6 +33,9 @@ MARKERS = {"B0": "s", "B1": "^", "B2": "D", "B3": "o", "B4": "v"}
 SHORT = {"B0": "B0 full trust", "B1": "B1 cutoff 1 s", "B2": "B2 Bayesian", "B3": "B3 AoC", "B4": "B4 Dempster rule"}
 CLASS_LABELS = {"passenger_car": "car", "heavy_truck": "truck", "pedestrian": "pedestrian", "cyclist": "cyclist"}
 PEN_FILL = {10: "white", 25: "#d9d9d9", 50: "#8c8c8c", 100: "black"}                   # the face of a marker in F8: the penetration of the cell
+RULE_COLORS = {"etsi": "#7f7f7f", "etsi_abs": "#17becf", "aoc": "#1f77b4", "aoc2": "#2ca02c", "aocdev": "#ff7f0e"}     # F9
+RULE_LABELS = {"etsi": "ETSI (Artery)", "etsi_abs": "ETSI, absolute positions", "aoc": "AoC, n = 1", "aoc2": "AoC, n = 2", "aocdev": "AoC + deviation"}
+LOAD_MARKERS = {0: "o", 12: "s", 36: "^"}                                                 # the marker in F9: the load stations of the cell
 
 
 class NoData(ValueError):
@@ -209,15 +215,101 @@ def f08_stale(results: str, path: str) -> dict:
     return numbers
 
 
+def f09_frontier(results: str, path: str) -> dict:
+    """F9: the time above the target against the load, one marker per condition and rule of the control grid (left the busy ratio, middle
+    the CPM bytes per sender-second), with the Pareto frontier of each load level dashed; right, the paired effect against ETSI (the load
+    ratio and the time difference of the same condition and seed, averaged over the seeds) with the region of H4 shaded. The colours say
+    the rule (the ETSI rules hollow), the markers the load level."""
+    from aoc.analysis import control
+    cells = pd.read_csv(os.path.join(results, "e3", "cells.csv"))
+    if not len(cells):
+        raise NoData("cells.csv of the control grid is empty")
+    pairs_path = os.path.join(results, "e3", "cell_pairs.csv")
+    cell_pairs = pd.read_csv(pairs_path) if os.path.isfile(pairs_path) else pd.DataFrame()
+    plt = _style()
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Polygon
+    fig, axes = plt.subplots(1, 3, figsize=(6.9, 2.6))
+    numbers = {}
+    rules = [r for r in grid.CONTROL.factors["rule"] if r in set(cells["rule"])]
+    loads = sorted(cells["load"].unique())
+    hollow = {"etsi", "etsi_abs"}
+
+    def face(rule):
+        return "white" if rule in hollow else RULE_COLORS.get(rule, "black")
+
+    xlabels = ("channel busy ratio", "CPM bytes per sender-second")
+    for ax, (measure, col), xlabel in zip(axes[:2], control.LOAD_MEASURES.items(), xlabels):
+        for load in loads:                                                          # the frontier within the load level
+            part = cells[cells["load"] == load]
+            on = part[control.frontier(part, col)].sort_values(col)
+            ax.plot(on[col], on["time_above_target"], "--", color="#444444", lw=0.6, zorder=0)
+            numbers["frontier_%s_load_%d" % (measure, load)] = {r: int(k) for r, k in on["rule"].value_counts().items()}
+        for rule in rules:
+            c = cells[cells["rule"] == rule]
+            for load in loads:
+                cl = c[c["load"] == load]
+                if cl.empty:
+                    continue
+                ax.plot(cl[col], cl["time_above_target"], LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.6, mfc=face(rule),
+                        mew=0.8, lw=0, alpha=0.95)
+        ax.set_xlabel(xlabel)
+        ax.set_xlim(left=0)
+        ax.grid(alpha=0.25, lw=0.4)
+    axes[0].set_ylabel("time above the target (share)")
+    ymin = float(cells["time_above_target"].min())
+    for ax in axes[:2]:
+        ax.set_ylim(max(0.0, ymin - 0.05), 1.0)
+    # the paired effect against etsi: x the load ratio on the condition's load side, y the time difference
+    ax = axes[2]
+    cp = cell_pairs[cell_pairs["reference"] == "etsi"] if len(cell_pairs) else cell_pairs
+    if len(cp):
+        ylo = min(float(cp["time_diff"].min()) - 0.01, -0.03)
+        yhi = max(float(cp["time_diff"].max()) + 0.01, 0.03)
+        xhi = max(float(cp["load_ratio"].max()) * 1.05, 1.1)
+        t, less = control.TOLERANCE, control.LOAD_LESS                           # the region of H4: less load and the time held, or more time at equal load
+        ax.add_patch(Polygon([(0, -t), (less, -t), (less, t), (1 + t, t), (1 + t, yhi), (0, yhi)], closed=True, color="#2ca02c", alpha=0.12, lw=0))
+        ax.axhline(0, color="#bbbbbb", lw=0.5)
+        ax.axvline(1, color="#bbbbbb", lw=0.5)
+        for rule in rules:
+            for load in loads:
+                part = cp[(cp["rule"] == rule) & (cp["load"] == load)]
+                if part.empty:
+                    continue
+                ax.plot(part["load_ratio"], part["time_diff"], LOAD_MARKERS.get(load, "o"), color=RULE_COLORS.get(rule, "black"), ms=3.6, mfc=face(rule),
+                        mew=0.8, lw=0, alpha=0.95)
+        ax.set_xlim(0, xhi)
+        ax.set_ylim(ylo, yhi)
+        for rule in rules:
+            part = cp[cp["rule"] == rule]
+            if len(part):
+                numbers["pair_" + rule] = dict(load_ratio=round(float(part["load_ratio"].mean()), 3), time_diff=round(float(part["time_diff"].mean()), 4),
+                                               conditions_pass=int((part["verdict"] == "PASS").sum()), conditions=int(len(part)))
+    ax.set_xlabel("load against ETSI (ratio)")
+    ax.set_ylabel("time above the target against ETSI (difference)", fontsize=7)
+    ax.grid(alpha=0.25, lw=0.4)
+    rule_handles = [Line2D([], [], marker="o", color=RULE_COLORS[r], mfc=face(r), mew=0.8, lw=0, ms=3.6, label=RULE_LABELS.get(r, r)) for r in rules]
+    load_handles = [Line2D([], [], marker=LOAD_MARKERS.get(ld, "o"), color="#444444", mfc="#444444", lw=0, ms=3.6, label="%d load stations" % ld) for ld in loads]
+    fig.legend(handles=rule_handles + load_handles, loc="lower center", ncol=4, frameon=False, columnspacing=1.2, handletextpad=0.4)
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
+    fig.savefig(path)
+    plt.close(fig)
+    for rule in rules:
+        c = cells[cells["rule"] == rule]
+        numbers[rule] = dict(time_above_target=round(float(c["time_above_target"].mean()), 4), cbr=round(float(c["cbr_mean"].mean()), 4),
+                             bytes_per_sender=round(float(c["bytes_per_sender"].mean()), 1), conditions=int(len(c)))
+    return numbers
+
+
 FIGURES = {"f02": ("f02_alpha.pdf", f02_alpha), "f05": ("f05_calibration.pdf", f05_reliability), "f07": ("f07_awareness.pdf", f07_awareness),
-           "f08": ("f08_stale.pdf", f08_stale)}
+           "f08": ("f08_stale.pdf", f08_stale), "f09": ("f09_control.pdf", f09_frontier)}
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Draw the figures of the core grid (F2, F5, F7, F8) from the results database.")
-    ap.add_argument("--results", default="results", help="the results folder with d3/ and d4/ (default: results)")
+    ap = argparse.ArgumentParser(description="Draw the figures of the core grid (F2, F5, F7, F8) and of the control grid (F9) from the results database.")
+    ap.add_argument("--results", default="results", help="the results folder with d3/, d4/ and e3/ (default: results)")
     ap.add_argument("--out", default="figures", help="the folder of the PDF files (default: figures)")
-    ap.add_argument("--only", default=None, help="one figure: f02, f05, f07 or f08")
+    ap.add_argument("--only", default=None, help="one figure: f02, f05, f07, f08 or f09")
     args = ap.parse_args(argv)
     try:
         import matplotlib  # noqa: F401
@@ -229,7 +321,7 @@ def main(argv=None) -> int:
     code = 0
     for key in wanted:
         if key not in FIGURES:
-            print("unknown figure %s (f02, f05, f07, f08)" % key)
+            print("unknown figure %s (f02, f05, f07, f08, f09)" % key)
             return 2
         name, draw = FIGURES[key]
         path = os.path.join(args.out, name)

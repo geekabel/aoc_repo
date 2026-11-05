@@ -8,7 +8,8 @@ scripts can embed it.
 Three tables, from the raw logs of the run (``parquet/cpm_tx``, ``cpm_obj``, ``cpm_rx``, ``truth``):
 
   senders      per sender: CPMs per second, bytes per second, bytes and objects per CPM, the share of CPMs with an
-               object container
+               object container; the rates over the run, and over the time the sender was present (``present_s``,
+               from ``truth``) when the run holds it
   inclusions   per class and motion state (moving, stopped): the period the rule gives, the intervals between two
                inclusions of the same object by the same sender (median, p10, p90), the share of intervals at the
                period (within one generation step), shorter (the object changed state, or was sent for a
@@ -16,10 +17,14 @@ Three tables, from the raw logs of the run (``parquet/cpm_tx``, ``cpm_obj``, ``c
   receivers    per receiver: the share of the time an object within range is known with a reliability at or above
                the target (``time_above_target``: the reliability alpha(age) of the latest report received, with
                the curve of the rule, 0 when no report was received in the hold), the share of the time it is
-               known at all (``known``), the mean channel busy ratio seen by the receiver. The objects counted are
-               the ones without V2X (not in ``nodes``: the pedestrians, and the cars without a station), the ones
-               collective perception is for; ``--objects all`` counts every object but the receiver (the stations
-               are then known through their CAMs, which these logs do not hold)
+               known at all (``known``), the mean channel busy ratio seen by the receiver (the mean over its
+               received CPMs, then the mean over the receivers). The objects counted (``--objects``) are by default
+               the ones without V2X, ``unequipped``: the objects that sent no CPM in the run (every vehicle of Artery
+               is a node with a station id, with or without services, so ``nodes`` cannot tell them apart; in the
+               control grid a car runs CA and CP together or nothing, so the CPM senders are the equipped cars; the
+               pedestrians never send). ``no_station`` counts the objects that are not in ``nodes`` at all (the
+               pedestrians), ``all`` counts every object but the receiver (the stations are then known through their
+               CAMs, which these logs do not hold)
 
 With ``--against`` the same tables of a second run (the rules of ETSI, say) are printed next to the first and the
 summary gives the ratios: the channel load and the time above target of the first run against the second (H4).
@@ -38,6 +43,8 @@ import pandas as pd
 
 Q_DEFAULT = "passenger_car=0.269,heavy_truck=0.118,pedestrian=0.0252,cyclist=0.98,default=0.269"
 H4_TOLERANCE = 0.01                    # the time above the target may be this much lower for the same verdict (one point)
+H4_LOAD_LESS = 0.8                     # the plan: at least 20 % less load
+OBJECT_CHOICES = ("unequipped", "no_station", "all")
 MIN_EXPOSURE = 50                      # ticks (5 s of object time) under which a receiver does not count in the mean over the receivers
 MOVING = ("moving", 0.3, 0.5)          # the position and speed errors of the sender (NED: sigmaX, sigmaV)
 STOPPED = ("stopped", 0.5, 0.05)       # the parked vehicle of the note (sigmaXStopped, sigmaVStopped)
@@ -135,8 +142,16 @@ def read_run(folder):
     return tables
 
 
-def senders_table(tx, warmup, t_end):
-    """Per sender: the CPM rate, the bytes and the objects."""
+def presence_table(truth, warmup, step=0.1):
+    """The seconds each object of truth is present after the warm-up (its ticks times the step)."""
+    if truth is None or truth.empty:
+        return pd.Series(dtype=float)
+    t = truth[truth["t"] >= warmup]
+    return (t.groupby("obj_id").size() * step).astype(float)
+
+
+def senders_table(tx, warmup, t_end, presence=None):
+    """Per sender: the CPM rate, the bytes and the objects; with the presence of the senders, the rates over their time present too."""
     t = tx[tx["t_tx"] >= warmup]
     seconds = max(t_end - warmup, 1e-9)
     t = t.assign(empty=(t["n_objects"] == 0) & (t["has_sensor_info"] == 0) if "has_sensor_info" in t.columns else (t["n_objects"] == 0))
@@ -150,6 +165,12 @@ def senders_table(tx, warmup, t_end):
     out["bytes_per_cpm"] = (out["bytes"] / out["cpms"]).round(1)
     out["objects_per_cpm"] = (out["objects"] / out["cpms"]).round(2)
     out["with_objects"] = out["with_objects"].round(3)
+    if presence is not None and len(presence):
+        present = pd.Series(presence).reindex(out.index.astype(str)).to_numpy(dtype=float)
+        out["present_s"] = np.round(present, 1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out["cpm_rate_hz_present"] = np.round(out["cpms"] / present, 3)
+            out["bytes_per_s_present"] = np.round((out["bytes"] - out["empty_bytes"]) / present, 1)
     return out.reset_index().sort_values("tx_id").reset_index(drop=True)
 
 
@@ -196,7 +217,14 @@ def inclusions_table(obj, rule, warmup, tx=None):
 def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, objects="unequipped"):
     """Per receiver: the share of the time an object within range is known with alpha at or above the target."""
     truth, rx, obj = tables["truth"], tables["cpm_rx"], tables["cpm_obj"]
-    stations = set(tables["nodes"]["node_id"].dropna().astype(str)) if objects == "unequipped" else set()
+    if objects == "unequipped":                                         # the objects without V2X: the ones that sent no CPM
+        stations = set(tables["cpm_tx"]["tx_id"].dropna().astype(str))
+    elif objects == "no_station":                                       # the objects that are no node of Artery at all
+        stations = set(tables["nodes"]["node_id"].dropna().astype(str))
+    elif objects == "all":
+        stations = set()
+    else:
+        raise ValueError("objects must be one of %s" % ", ".join(OBJECT_CHOICES))
     reports = rx.merge(obj[["station_id", "reference_time_ms", "gt_match_id", "t_meas", "speed_cms", "class"]], on=["station_id", "reference_time_ms"], how="inner")
     reports = reports[reports["gt_match_id"].notna()]
     columns = ["rx_id", "pairs", "known", "time_above_target", "cbr_mean"]
@@ -236,8 +264,15 @@ def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, 
                 continue
             rep = rep.sort_values("t_rx")
             t_rx = rep["t_rx"].to_numpy(dtype=float)
-            t_meas = np.maximum.accumulate(rep["t_meas"].to_numpy(dtype=float))     # the freshest report received so far
-            speed = rep["speed_cms"].fillna(0).to_numpy(dtype=float) / 100.0
+            t_meas_raw = rep["t_meas"].to_numpy(dtype=float)
+            freshest = np.zeros(len(rep), dtype=int)                                # the index of the freshest report received so far
+            best = 0
+            for i in range(len(rep)):
+                if t_meas_raw[i] >= t_meas_raw[best]:
+                    best = i
+                freshest[i] = best
+            t_meas = t_meas_raw[freshest]
+            speed = (rep["speed_cms"].fillna(0).to_numpy(dtype=float) / 100.0)[freshest]     # the speed of that report
             idx = np.searchsorted(t_rx, ticks, side="right") - 1
             have = idx >= 0
             safe = np.clip(idx, 0, None)
@@ -259,16 +294,22 @@ def receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers=None, 
 def analyse(folder, rule, warmup, range_m, hold, receivers=None, objects="unequipped"):
     tables = read_run(folder)
     t_end = float(tables["info"].get("t_last_s") or tables["truth"]["t"].max())
-    out = dict(senders=senders_table(tables["cpm_tx"], warmup, t_end), inclusions=inclusions_table(tables["cpm_obj"], rule, warmup, tables["cpm_tx"]),
+    out = dict(senders=senders_table(tables["cpm_tx"], warmup, t_end, presence_table(tables["truth"], warmup)),
+               inclusions=inclusions_table(tables["cpm_obj"], rule, warmup, tables["cpm_tx"]),
                receivers=receivers_table(tables, rule, warmup, t_end, range_m, hold, receivers, objects))
     s, r = out["senders"], out["receivers"]
+    present = round(float(s["present_s"].sum()), 1) if "present_s" in s and len(s) and np.isfinite(s["present_s"]).any() else np.nan
     exposed = r[r["pairs"] >= MIN_EXPOSURE]                               # the receivers with enough object time for a share
     pairs = float(r["pairs"].sum()) if len(r) else 0.0
-    out["summary"] = dict(folder=folder, label=str(tables["info"].get("variables") or tables["info"].get("iteration_vars") or ""), seconds=round(t_end - warmup, 1),
+    out["summary"] = dict(folder=folder, label=str(tables["info"].get("variables") or tables["info"].get("iteration_vars") or ""),
+                          variables=dict(tables["info"].get("variables") or {}), seconds=round(t_end - warmup, 1),
                           senders=int(len(s)), cpm_rate_hz=round(float(s["cpm_rate_hz"].mean()), 3) if len(s) else np.nan,
                           bytes_per_s=round(float(s["bytes_per_s"].sum()), 1) if len(s) else np.nan,
                           bytes_per_s_without_empty=round(float(s["bytes_per_s_without_empty"].sum()), 1) if len(s) else np.nan,
                           objects_per_cpm=round(float(s["objects"].sum() / max(s["cpms"].sum(), 1)), 2) if len(s) else np.nan,
+                          # the rates over the time the senders were present (a sender-second), when truth gives it
+                          present_s=present, cpm_rate_hz_present=round(float(s["cpms"].sum() / present), 3) if present > 0 else np.nan,
+                          bytes_per_sender_s=round(float((s["bytes"] - s["empty_bytes"]).sum() / present), 1) if present > 0 else np.nan,
                           cbr_mean=round(float(r["cbr_mean"].mean()), 4) if len(r) else np.nan,
                           pairs=int(pairs), receivers=int(len(r)), receivers_exposed=int(len(exposed)),
                           time_above_target=round(float((r["time_above_target"] * r["pairs"]).sum() / pairs), 4) if pairs else np.nan,     # pooled over the pairs
@@ -276,6 +317,17 @@ def analyse(folder, rule, warmup, range_m, hold, receivers=None, objects="unequi
                           # the mean over the receivers with enough object time
                           time_above_target_receivers=round(float(exposed["time_above_target"].mean()), 4) if len(exposed) else np.nan)
     return out
+
+
+def h4_verdict(load_ratio, time_diff):
+    """H4 on one pair: PASS when the rule has at least 20 % less load for the same time above the target (within one point), or
+    more time above the target (by more than one point) at a load not higher (within one percent); n/a without the numbers."""
+    if not (np.isfinite(load_ratio) and np.isfinite(time_diff)):
+        return "n/a"
+    eps = 1e-9                                                   # a difference of exactly one point, computed in floating point, is one point
+    less_load = load_ratio <= H4_LOAD_LESS + eps and time_diff >= -H4_TOLERANCE - eps
+    more_time = time_diff > H4_TOLERANCE + eps and load_ratio <= 1 + H4_TOLERANCE + eps
+    return "PASS" if (less_load or more_time) else "FAIL"
 
 
 def format_report(result, against=None, rule=None):
@@ -292,6 +344,9 @@ def format_report(result, against=None, rule=None):
         lines.append("%s: %s (%s), %.0f s after the warm-up" % (name, s["folder"], s["label"], s["seconds"]))
         lines.append("  senders %d, CPM rate %.3f Hz per sender, %.0f bytes/s in all (%.0f without the empty CPMs), %.2f objects per CPM; CBR %.4f" % (
             s["senders"], s["cpm_rate_hz"], s["bytes_per_s"], s["bytes_per_s_without_empty"], s["objects_per_cpm"], s["cbr_mean"]))
+        if np.isfinite(s.get("present_s", np.nan)):
+            lines.append("  over the time the senders were present (%.0f sender-seconds): CPM rate %.3f Hz, %.1f bytes/s per sender without the empty CPMs" % (
+                s["present_s"], s["cpm_rate_hz_present"], s["bytes_per_sender_s"]))
         lines.append("  receivers %d (%d with %d ticks of object time or more): time above target %.4f pooled over the %d object ticks "
                      "(%.4f on average over the exposed receivers), known %.4f" % (
                          s["receivers"], s["receivers_exposed"], MIN_EXPOSURE, s["time_above_target"], s["pairs"], s["time_above_target_receivers"], s["known"]))
@@ -304,9 +359,8 @@ def format_report(result, against=None, rule=None):
         lines.append("run against the other: bytes/s %.3f (%.3f without the empty CPMs), CPM rate %.3f, CBR %.3f, time above target %.3f, known %.3f" % (
             ratio("bytes_per_s"), ratio("bytes_per_s_without_empty"), ratio("cpm_rate_hz"), ratio("cbr_mean"), ratio("time_above_target"), ratio("known")))
         for load, name in (("cbr_mean", "the channel busy ratio, the load of the plan"), ("bytes_per_s_without_empty", "the CPM bytes without the empty CPMs")):
-            less_load = a[load] <= 0.8 * b[load] and a["time_above_target"] >= b["time_above_target"] - H4_TOLERANCE
-            more_time = a["time_above_target"] > b["time_above_target"] + H4_TOLERANCE and a[load] <= b[load] * (1 + H4_TOLERANCE)
-            lines.append("H4 on this run, the load as %s: %s" % (name, "PASS" if (less_load or more_time) else "not met"))
+            v = h4_verdict(ratio(load), a["time_above_target"] - b["time_above_target"])
+            lines.append("H4 on this run, the load as %s: %s" % (name, "PASS" if v == "PASS" else "not met"))
         lines.append("(the plan: the target reached with at least 20 %% less load, or more time above the target at equal load; within %.0f point here; "
                      "the busy ratio here is the mean over the receptions, which leans to the busy moments)" % (100 * H4_TOLERANCE))
     return "\n".join(lines)
@@ -332,7 +386,8 @@ def main(argv=None):
     ap.add_argument("--warmup", type=float, default=10.0)
     ap.add_argument("--range", type=float, default=200.0, help="the range of the receiver metric, m")
     ap.add_argument("--hold", type=float, default=5.0, help="a report older than this is forgotten by the receiver metric")
-    ap.add_argument("--objects", choices=["unequipped", "all"], default="unequipped", help="the objects of the receiver metric (default: the ones without V2X)")
+    ap.add_argument("--objects", choices=list(OBJECT_CHOICES), default="unequipped",
+                    help="the objects of the receiver metric: unequipped (sent no CPM; the default), no_station (not a node of Artery), all")
     ap.add_argument("--out", default=None, help="write the tables (CSV) and the summary (JSON) there")
     args = ap.parse_args(argv)
     rule = Rule(args.target, args.eps, args.delay, args.repeats, parse_q(args.q), args.sigma_x, args.sigma_v, args.stopped_speed, args.q_stopped,

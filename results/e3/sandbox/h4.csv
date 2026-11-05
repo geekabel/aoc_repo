@@ -1,0 +1,9 @@
+rule,reference,conditions,conditions_expected,conditions_pass,conditions_pass_ci,pass_load_0,pass_load_12,pass_load_36,load_ratio_mean,load_ratio_max,time_diff_mean,time_diff_min,seed_pairs,seed_pairs_pass,p_less_load,p_time_held,h4
+etsi_abs,etsi,6,12,1,0,0/2,1/2,0/2,0.925,1.028,0.0026,-0.0002,6,1,1.0,0.0156,incomplete (6/12)
+aoc,etsi,6,12,4,0,2/2,2/2,0/2,0.571,0.721,-0.0179,-0.0664,6,4,0.0156,0.5781,incomplete (6/12)
+aoc2,etsi,6,12,4,0,2/2,2/2,0/2,0.82,0.939,-0.0001,-0.015,6,4,0.5781,0.0312,incomplete (6/12)
+aocdev,etsi,6,12,5,0,2/2,2/2,1/2,0.61,0.742,-0.0057,-0.0387,6,5,0.0156,0.2188,incomplete (6/12)
+etsi,etsi_abs,6,12,0,0,0/2,0/2,0/2,1.081,1.212,-0.0026,-0.0115,6,0,1.0,0.0312,incomplete (6/12)
+aoc,etsi_abs,6,12,4,0,2/2,2/2,0/2,0.617,0.727,-0.0205,-0.0663,6,4,0.0156,0.5781,incomplete (6/12)
+aoc2,etsi_abs,6,12,0,0,0/2,0/2,0/2,0.886,0.926,-0.0028,-0.0149,6,0,1.0,0.0469,incomplete (6/12)
+aocdev,etsi_abs,6,12,5,0,2/2,2/2,1/2,0.66,0.767,-0.0083,-0.0386,6,5,0.0156,0.2188,incomplete (6/12)
